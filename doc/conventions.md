@@ -42,7 +42,7 @@
 
 ## 调试日志（`adm_api_debug.log`）
 
-- **调试日志统一写入 `adm_api_debug.log`**：复杂问题排查需要日志时，Rust 端用 `api_debug_log!`，前端 JS 用 `invoke("agent_debug_log", { line: "..." })`，统一写入 `~/Library/Application Support/com.adm.admapp/adm_api_debug.log`（macOS）或 `%LOCALAPPDATA%\ADM\adm_api_debug.log`（Windows；`get_data_dir` 在 Windows 返回 exe 同目录，即安装目录下）。日志必须带类型标记便于过滤：
+- **调试日志统一写入 `adm_api_debug.log`**：复杂问题排查需要日志时，Rust 端用 `api_debug_log!`，前端 JS 用 `invoke("agent_debug_log", { line: "..." })`，统一写入 `~/Library/Application Support/com.admx.admapp/adm_api_debug.log`（macOS）或 `%LOCALAPPDATA%\ADMX\adm_api_debug.log（ADMX 分支 productName/identifier 见 [admx-fork-rebrand.md](admx-fork-rebrand.md)）`（Windows；`get_data_dir` 在 Windows 返回 exe 同目录，即安装目录下）。日志必须带类型标记便于过滤：
   - `UI:` 前缀 — 前端 JS 日志（SSE 事件过滤、状态变更、消息处理等）
   - `HTTP >` / `HTTP <` — HTTP 请求/响应
   - `SSE =` / `SSE !` — SSE 连接/断开

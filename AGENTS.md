@@ -44,6 +44,7 @@
 | [`doc/conventions.md`](doc/conventions.md) | 工作边界、工作目录功能归属、代码↔文档同步映射表（改动收尾必查）、调试日志格式与标记 |
 | [`doc/server-api.md`](doc/server-api.md) | admAgent HTTP API（服务端权威文档） |
 | [`doc/admAgent-eval-harness-plan.md`](doc/admAgent-eval-harness-plan.md) | agent 行为 eval：`admAgent eval` + `scripts/eval.{ps1,sh}`、任务/判分器定义、基线判定 |
+| [`doc/admx-fork-rebrand.md`](doc/admx-fork-rebrand.md) | ADMX 分支品牌化改造：应用名/标识符/图标/底栏导航/自升级与原版 ADM 的差异、Git Bash 打包坑 |
 | `doc/llamacpp.txt` / `doc/llamacpp-macos.txt` | llama-server CLI 启动参数 |
 | `doc/model_list.json` | 模型清单 |
 

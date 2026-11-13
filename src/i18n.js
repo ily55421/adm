@@ -5,7 +5,6 @@
 
 const EN = {
   // ===== 壳层 index.html =====
-  "首页": "Home",
   "设置": "Settings",
   "内存": "Memory",
   "内容": "Content",

@@ -10,7 +10,7 @@
   所有前端源码在 `src/` 目录下，作为 `frontendDist` 原样提供。
 - **单窗口 SPA（单页应用）** + hash 路由：
   - `index.html`（外壳）含 `#view-root` 容器、底部硬件栏与导航。
-  - 4 个视图（`model_list` / `settings` / `agent` / `skills`）各自为独立 **ES 模块**（`src/views/*.js`），默认导出 `{ template, mount(root, params), unmount() }`。模型运行后「查看模型」直接用系统浏览器打开 WebUI（`window.openUrl`），不再有 chat 视图。
+  - 4 个视图（`model_list` / `settings` / `agent` / `skills`）各自为独立 **ES 模块**（`src/views/*.js`），默认导出 `{ template, mount(root, params), unmount() }`。模型运行后「查看模型」直接用系统浏览器打开 WebUI（`window.openUrl`），不再有 chat 视图。**ADMX 分支：`/list` 路由已移除**（底栏仅 设置/Agent/技能管理 三菜单，默认路由 `#/agent`，设置页返回按钮删除），`model_list.js` 保留但不再被路由引用，详见 [admx-fork-rebrand.md](admx-fork-rebrand.md)。
   - `agent` 视图已拆分：`src/views/agent.js` 为入口（init/bindEvents/生命周期），具体逻辑在 `src/views/agent/` 子模块（store/template/api/utils/ui/render/session/attach/send/sse/permission/tools/model/workspace/settings_dialog/undo）；跨模块共享状态由 `store.js` 统一管理（`store` 为写入入口，`S` 为只读视图，workspace 字段禁止直接写 `S`）。
   - `index.html` 通过动态 `import()` 异步加载视图模块，把 `template`（含 `<style>` 的 HTML 字符串）注入 `#view-root`，调用 `mount`/`unmount` 管理生命周期。
 - CSS/JS **内联**在每个视图模块的 `template` 字符串或模块函数内，保持零运行时依赖。
@@ -24,7 +24,7 @@
 - **共享状态** `window.__adm_state`（systemInfo / runningModelId / modelList 等）跨视图共享，切换不丢。
 - 视图 `mount` 时 `listen()` 保存 unlisten 句柄，`unmount` 时统一调用以防事件重复绑定（泄漏）。
 - **Agent 页面**（`src/views/agent.js`）为独立 ESM 视图，由路由 `#/agent` 加载，不再使用 iframe / PTY 终端。
-- 子页面 → 父窗口导航：使用 `location.hash = "#/list"` 等 hash 路由。
+- 子页面 → 父窗口导航：使用 `location.hash = "#/agent"` 等 hash 路由。
 
 ## Agent server 与多 workspace 并发
 

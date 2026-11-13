@@ -6,7 +6,7 @@
 
 ## 内置 admAgent 分发
 
-- **admAgent 内置分发**：admAgent 本地编译（`admAgent/build.ps1` / `build.sh`）产出的压缩包（`admAgent_{ver}_Windows_x86_64.zip` / `admAgent_{ver}_Darwin_arm64.tar.gz` / `admAgent_{ver}_Linux_x86_64.tar.gz`）直接写入 `adm-binaries/`（二进制仓库，与 admAgent 共用同一本地 clone）。推送脚本 `adm-binaries/push.mjs` 的 `ARCHIVE_RE` 只决定日志输出与版本号统计（实际提交是 `git add -A`，目录内所有文件都会被推送），新增平台包名时必须同步更新该正则，否则会出现"日志只列了 N 个、远端却多出别的包"。`beforeDevCommand`/`beforeBuildCommand` 运行 `scripts/prepare-agent-binary.mjs`：按构建目标在 `adm-binaries/` 下选版本号最大的包、解压到临时目录、把二进制放到 `src-tauri/binaries/admAgent-<target-triple>`（git 忽略），再由 `bundle.externalBin`（sidecar）打进安装包。运行时路径：Windows 为 ADM.exe 同目录的 `admAgent.exe`，macOS 为 `ADM.app/Contents/MacOS/admAgent`；macOS 启动时会清理旧版下载模式遗留在 app_data_dir 的 admAgent。`adm-binaries/` **不入库**（.gitignore）：推送用 `pnpm agent:push`（转发 `adm-binaries/push.mjs`，每次以单个提交强制覆盖远端，历史不堆积旧二进制）；CI 构建时自动 checkout 该仓库到 `adm-binaries/`。
+- **admAgent 内置分发**：admAgent 本地编译（`admAgent/build.ps1` / `build.sh`）产出的压缩包（`admAgent_{ver}_Windows_x86_64.zip` / `admAgent_{ver}_Darwin_arm64.tar.gz` / `admAgent_{ver}_Linux_x86_64.tar.gz`）直接写入 `adm-binaries/`（二进制仓库，与 admAgent 共用同一本地 clone）。推送脚本 `adm-binaries/push.mjs` 的 `ARCHIVE_RE` 只决定日志输出与版本号统计（实际提交是 `git add -A`，目录内所有文件都会被推送），新增平台包名时必须同步更新该正则，否则会出现"日志只列了 N 个、远端却多出别的包"。`beforeDevCommand`/`beforeBuildCommand` 运行 `scripts/prepare-agent-binary.mjs`：按构建目标在 `adm-binaries/` 下选版本号最大的包、解压到临时目录、把二进制放到 `src-tauri/binaries/admAgent-<target-triple>`（git 忽略），再由 `bundle.externalBin`（sidecar）打进安装包。运行时路径：Windows 为 ADMX.exe 同目录的 `admAgent.exe`，macOS 为 `ADMX.app/Contents/MacOS/admAgent`（ADMX 分支 productName，原版为 ADM，见 [admx-fork-rebrand.md](admx-fork-rebrand.md)）；macOS 启动时会清理旧版下载模式遗留在 app_data_dir 的 admAgent。`adm-binaries/` **不入库**（.gitignore）：推送用 `pnpm agent:push`（转发 `adm-binaries/push.mjs`，每次以单个提交强制覆盖远端，历史不堆积旧二进制）；CI 构建时自动 checkout 该仓库到 `adm-binaries/`。
 
 ## Linux 打包与更新链路
 
@@ -19,4 +19,4 @@
 - 更新内置二进制：编译 admAgent（压缩包自动写入 `adm-binaries/`）→ `pnpm agent:push` 强制覆盖远端（CI 下次构建即用）。
 - **发布前手动跑一次 agent 行为 eval**：`admAgent/scripts/eval.sh`（Windows `admAgent\scripts\eval.ps1`），退出码 `0` 通过 / `1` 回归（需查 `out/eval/summary.md` 的翻转表再决定是否发） / `2` 跳过（无云端模型）。**eval 不接入构建链路**，`build.ps1` / `build.sh` 不会自动调用它，漏跑等于没有门禁。规则见 [admAgent-eval-harness-plan.md](admAgent-eval-harness-plan.md)。
 - 发布：`pnpm tauri:build:<平台>` 然后 `pnpm sign:<平台>`。
-- 图标：`python scripts/generate-icons.py` 从 `src-tauri/icons/source.png` 生成。
+- 图标：ADMX 分支用 `pnpm tauri icon src-tauri/icons/source.svg` 从矢量源生成全套（ico/icns/PNG/Square*Logo）；上游遗留的 `python scripts/generate-icons.py`（PIL 从 source.png 缩放）保留但不再使用，见 [admx-fork-rebrand.md](admx-fork-rebrand.md)。

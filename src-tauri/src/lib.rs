@@ -97,7 +97,7 @@ pub fn run() {
             // 结果记入 AppState，关闭窗口的行为随之降级为直接退出（见 on_window_event）
             let tray_result = TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("ADM")
+                .tooltip("ADMX")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {

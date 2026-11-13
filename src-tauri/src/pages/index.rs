@@ -398,7 +398,11 @@ pub async fn check_update(app: tauri::AppHandle) -> Result<UpdateCheckResult, Ap
 
     let update_info = fetch_update_info().await?;
 
-    let has_update = compare_versions(&current_version, &update_info.version) == std::cmp::Ordering::Less;
+    // ADMX 分支：应用本体不接入官方 ADM 更新源——update.json 里的 app_url 指向原版
+    // ADM 安装包，若照常提示/静默下载会把 ADMX 自升级覆盖成原版 ADM，与应用改名
+    // （避免与原版冲突）的目的相悖，故 has_update 恒为 false。
+    // update.json 仍用于 VC++ 运行库检测与 llamacpp 运行时更新检查，这两条链路保持不变。
+    let has_update = false;
 
     let download_url;
     let changelog_url;

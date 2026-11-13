@@ -18,18 +18,6 @@ const template = `
     gap: 12px;
   }
 
-  .back-btn {
-    background: var(--c-overlay);
-    border: none;
-    color: var(--c-text);
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: background 0.2s;
-  }
-  .back-btn:hover { background: var(--c-overlay-strong); }
-
   #settings-header .title { font-size: 16px; font-weight: 600; color: var(--c-text-hi); }
 
   #settings-layout { display: flex; flex: 1; overflow: hidden; }
@@ -239,7 +227,6 @@ const template = `
 </style>
 <div id="settings-app">
   <div id="settings-header">
-    <button class="back-btn" id="back-btn">&#8592; ${_t("返回")}</button>
     <span class="title">${_t("设置")}</span>
   </div>
   <div id="settings-layout">
@@ -818,8 +805,6 @@ async function checkUpdateNow() {
   setTimeout(() => { statusEl.textContent = ""; statusEl.style.color = "var(--c-text-3)"; }, 5000);
 }
 
-function goBack() { location.hash = "#/list"; }
-
 // ===== 外观主题 =====
 
 function renderThemeGrid() {
@@ -1041,7 +1026,6 @@ export default {
       if (el) el.addEventListener("contextmenu", function(e) { e.preventDefault(); });
     });
 
-    document.getElementById("back-btn").addEventListener("click", goBack);
     document.querySelectorAll(".nav-item").forEach(function(el) {
       el.addEventListener("click", function() { switchPanel(el.dataset.panel); });
     });

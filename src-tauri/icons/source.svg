@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="55%" stop-color="#6D3AE0"/>
+      <stop offset="100%" stop-color="#4C1D95"/>
+    </linearGradient>
+    <linearGradient id="tx" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#5B21B6"/>
+      <stop offset="100%" stop-color="#3B0A78"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="190" ry="190" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="432" fill="#ffffff"/>
+  <text x="512" y="512" text-anchor="middle" dominant-baseline="central"
+        font-family="'Segoe UI', 'Microsoft YaHei', Arial, sans-serif"
+        font-weight="700" font-size="252" letter-spacing="2" fill="url(#tx)">ADMX</text>
+</svg>

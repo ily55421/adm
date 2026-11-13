@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$AppName = "ADM"
+$AppName = "ADMX"
 $ExePath = "src-tauri\target\release\$AppName.exe"
 $CertName = "ADM Self-Signed Cert"
 

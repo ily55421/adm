@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ADM</title>
+  <title>ADMX</title>
   <style>
     /* ===== 主题变量：默认「暗夜紫」，其余主题通过 <html data-theme> 覆盖 =====
        全部前端视图内联在同一文档中，故 :root 变量对所有视图（含 agent）生效 */
@@ -113,7 +113,6 @@
       flex-shrink: 0;
     }
 
-    #home-btn,
     #settings-btn,
     #agent-btn,
     #skills-btn {
@@ -139,14 +138,12 @@
       font-weight: 500;
     }
 
-    #home-btn:hover,
     #settings-btn:hover,
     #agent-btn:hover,
     #skills-btn:hover {
       color: var(--c-accent);
     }
 
-    #home-btn.active,
     #settings-btn.active,
     #agent-btn.active,
     #skills-btn.active {
@@ -155,7 +152,6 @@
       border-radius: 6px;
       border-right-color: transparent;
     }
-    #home-btn.active .btn-icon,
     #settings-btn.active .btn-icon,
     #agent-btn.active .btn-icon,
     #skills-btn.active .btn-icon {
@@ -377,10 +373,6 @@
   <div id="app">
     <div id="view-root"></div>
     <div id="hardware-bar">
-      <div id="home-btn" onclick="navigateTo('/list')">
-        <span class="btn-icon">&#8962;</span>
-        <span class="btn-text" data-i18n="首页">首页</span>
-      </div>
       <div id="settings-btn" onclick="navigateTo('/settings')">
         <span class="btn-icon">&#9881;</span>
         <span class="btn-text" data-i18n="设置">设置</span>
@@ -471,7 +463,7 @@
 
     // ===== 导航激活态 =====
     function setActiveNav(id) {
-      ["home-btn", "settings-btn", "agent-btn", "skills-btn"].forEach(function (b) {
+      ["settings-btn", "agent-btn", "skills-btn"].forEach(function (b) {
         const el = document.getElementById(b);
         if (el) el.classList.toggle("active", b === id);
       });
@@ -1178,8 +1170,9 @@
     }
 
     // ===== 路由器 =====
+    // ADMX 分支：模型列表（首页）入口已移除，仅保留 设置 / Agent / 技能管理 三个页面，
+    // 默认路由与未知 hash 的兜底都落到 /agent（model_list.js 保留但不被任何路由引用）。
     const routes = {
-      "/list":     { load: () => import("./views/model_list.js"),     nav: "home-btn" },
       "/settings": { load: () => import("./views/settings.js"),       nav: "settings-btn" },
       "/agent":    { load: () => import("./views/agent.js"),          nav: "agent-btn" },
       "/skills":   { load: () => import("./views/skills.js"),         nav: "skills-btn" },
@@ -1224,7 +1217,7 @@
     }
 
     // 路由诊断日志：把 hash 变化与拦截情况写进 adm_api_debug.log（调试模式关闭时
-    // 服务端直接丢弃，无文件开销）。用于复盘「运行中偶发跳回首页」这类浏览器级
+    // 服务端直接丢弃，无文件开销）。用于复盘「运行中偶发跳回默认页」这类浏览器级
     // 导航问题：对比相邻两行的 href 与 history.length 可判断是历史前进/后退
     // （href 无 #、len 不增）还是落到空 fragment（href 以 # 结尾）。
     function logRouteDebug(msg) {
@@ -1235,7 +1228,7 @@
 
     async function renderRoute() {
       const seq = ++renderSeq;
-      const hash = location.hash || "#/list";
+      const hash = location.hash || "#/agent";
       console.log("[index] renderRoute() hash:", hash);
       const clean = hash.replace(/^#/, "");
       const qIndex = clean.indexOf("?");
@@ -1251,15 +1244,15 @@
         });
       }
 
-      const route = routes[path] || routes["/list"];
+      const route = routes[path] || routes["/agent"];
       logRouteDebug("hashchange href=" + location.href + " len=" + history.length +
         " busy=" + !!(window.__adm_state && window.__adm_state.agentBusy) +
         " cur=" + (currentRoutePath || "-"));
 
       // Agent 运行中禁止离开 Agent 页面：底部导航点击由 navigateTo 拦截，但浏览器级
       // 历史导航（鼠标侧键 / Alt+← / 触控板横向滑动）与「链接拖放到页面」不经过
-      // navigateTo —— 它们会把 hash 清空或改成未知路由，路由器随后回退到首页
-      // （routes["/list"]），表现为运行中界面偶发跳回首页、Agent 视图被卸载重挂。
+      // navigateTo —— 它们会把 hash 清空或改成未知路由，路由器随后回退到默认路由
+      // （routes["/agent"]），表现为运行中界面偶发跳回默认页、Agent 视图被卸载重挂。
       // 这里在卸载旧视图之前拦下：用 replace 纠正 hash（不新增历史记录），视图保持挂载。
       // 仅在 Agent 视图确实挂载时生效：视图已卸载/渲染失败时不该把用户困在拦截里。
       if (window.__adm_state && window.__adm_state.agentBusy && currentView &&
@@ -1368,7 +1361,7 @@
         setupAppUpdateProgressListener();
         systemInfo = await window.__adm_systemInfoPromise;
         updateHardwareBar();
-        setActiveNav("home-btn");
+        setActiveNav("agent-btn");
         console.log("[index] 系统信息获取完成:", systemInfo);
       } catch (e) {
         console.error("[index] 获取系统信息失败:", e);
