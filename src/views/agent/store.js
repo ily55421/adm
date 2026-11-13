@@ -657,4 +657,6 @@ export const S = {
   // path → wsId 映射：工作目录删除（remove_workdir / validate_workdirs）时
   // 用于清理对应 workspace 的状态池条目
   wsIdByPath: {},
+  // 工作目录列表（fetchWorkdirs 写入，ws_tree.js 树渲染的数据源）
+  workdirs: [],
 };

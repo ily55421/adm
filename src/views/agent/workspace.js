@@ -165,152 +165,24 @@ async function refreshProvidersOnSwitch(wsId) {
   updateModelDropdown();
 }
 
-// ===== 工作区下拉列表 =====
+// ===== 工作目录列表缓存 =====
+// 旧的「工作目录下拉」已替换为左侧工作区分组树（ws_tree.js），本模块只负责
+// 提供目录列表数据（fetchWorkdirs）与切换动作（doSwitchWorkDir），
+// 添加/移除目录的交互在 ws_tree.js 中实现。
 
-// 当前下拉是否展开
-var dropdownOpen = false;
-// 文档级关闭处理函数引用，用于在 closeWorkDirDropdown 时显式移除
-var docCloseHandler = null;
-
-// 关闭下拉（点击外部时调用）
-export function closeWorkDirDropdown() {
-  dropdownOpen = false;
-  var dd = document.getElementById("workdir-dropdown");
-  if (dd) dd.remove();
-  if (docCloseHandler) {
-    document.removeEventListener("click", docCloseHandler);
-    docCloseHandler = null;
-  }
-  // 移除 resize 监听（滚动/滚轮不关闭下拉，仅点击外部关闭）
-  window.removeEventListener("resize", closeWorkDirDropdown);
-}
-
-// 打开/关闭下拉
-export async function toggleWorkDirDropdown() {
-  if (dropdownOpen) {
-    closeWorkDirDropdown();
-    return;
-  }
-  dropdownOpen = true;
-  await renderWorkDirDropdown();
-}
-
-// 渲染下拉列表
-async function renderWorkDirDropdown() {
-  var selector = document.getElementById("agent-workspace-selector");
-  if (!selector) return;
-
-  // 移除旧的下拉
-  var old = document.getElementById("workdir-dropdown");
-  if (old) old.remove();
-
-  var dirs = [];
+/** 拉取工作目录列表并写入 S.workdirs（树渲染的数据源），完成后刷新树 */
+export async function fetchWorkdirs() {
   try {
-    dirs = await invoke("get_workdirs");
+    S.workdirs = await invoke("get_workdirs");
   } catch (e) {
     console.warn("[agent] 加载工作目录列表失败:", e);
+    if (!Array.isArray(S.workdirs)) S.workdirs = [];
   }
-
-  var dd = document.createElement("div");
-  dd.id = "workdir-dropdown";
-  dd.className = "workdir-dropdown";
-
-  // 工作目录列表项
-  dirs.forEach(function(d) {
-    var item = document.createElement("div");
-    item.className = "workdir-dropdown-item" + (d.is_default ? " active" : "");
-    var marker = d.is_default ? "▸ " : "  ";
-    var label = document.createElement("span");
-    label.className = "workdir-dropdown-label";
-    label.textContent = marker + d.path;
-    label.title = d.path;
-    label.style.flex = "1";
-    label.style.overflow = "hidden";
-    label.style.textOverflow = "ellipsis";
-    item.appendChild(label);
-    item.style.display = "flex";
-    item.style.alignItems = "center";
-    item.style.gap = "4px";
-
-    // 删除按钮（当前默认目录不可删除）
-    if (!d.is_default) {
-      var delBtn = document.createElement("span");
-      delBtn.textContent = "✕";
-      delBtn.className = "workdir-dropdown-del";
-      delBtn.title = _t("移除");
-      delBtn.addEventListener("click", function(e) {
-        e.stopPropagation();
-        // 移除前确认，避免误删工作目录
-        showConfirm(_t("确定要移除工作目录「") + d.path + _t("」吗？"), async function() {
-          try {
-            await invoke("remove_workdir", { path: d.path });
-            // 清理该 workspace 的状态池（会话/消息/运行状态），避免残留；
-            // 该路径日后重新添加时 store.workspaces.has 为 false 会走首次初始化
-            var removedWsId = S.wsIdByPath[d.path];
-            if (removedWsId) {
-              store.removeWorkspace(removedWsId);
-              delete S.wsIdByPath[d.path];
-            }
-            closeWorkDirDropdown();
-          } catch (err) {
-            reportError(err, { prefix: _t("移除工作目录失败: ") });
-          }
-        });
-      });
-      item.appendChild(delBtn);
-    }
-
-    // 点击整行切换（用 classList 判断删除按钮，避免 delBtn 闭包未定义问题）
-    item.addEventListener("click", async function(e) {
-      if (e.target instanceof Element && e.target.classList.contains("workdir-dropdown-del")) return;
-      e.stopPropagation();
-      closeWorkDirDropdown();
-      if (!d.is_default) {
-        await doSwitchWorkDir(d.path);
-      }
-    });
-    dd.appendChild(item);
-  });
-
-  // 分隔线（如果列表非空）
-  if (dirs.length > 0) {
-    var sep = document.createElement("div");
-    sep.className = "workdir-dropdown-sep";
-    dd.appendChild(sep);
-  }
-
-  // 添加工作目录
-  var addBtn = document.createElement("div");
-  addBtn.className = "workdir-dropdown-item add";
-  addBtn.textContent = "＋ " + _t("添加工作目录");
-  addBtn.addEventListener("click", async function(e) {
-    e.stopPropagation();
-    closeWorkDirDropdown();
-    try {
-      var dir = await invoke("pick_workdir_folder");
-      if (dir) {
-        await invoke("add_workdir", { path: dir });
-        await doSwitchWorkDir(dir);
-      }
-    } catch (err) {
-      reportError(err, { prefix: _t("添加工作目录失败: ") });
-    }
-  });
-  dd.appendChild(addBtn);
-
-  selector.appendChild(dd);
-
-  // 点击外部关闭（存储引用以便 closeWorkDirDropdown 显式移除）
-  docCloseHandler = function() { closeWorkDirDropdown(); };
-  setTimeout(function() {
-    document.addEventListener("click", docCloseHandler);
-    // 窗口 resize 时关闭下拉；滚动/滚轮不关闭（保持展开直到点击外部）
-    window.addEventListener("resize", closeWorkDirDropdown);
-  }, 0);
+  renderConversationList();
 }
 
 // 执行工作目录切换：在已运行的 server 上创建新 workspace，成功后切换 tab
-async function doSwitchWorkDir(path) {
+export async function doSwitchWorkDir(path) {
   try {
     if (!S.serverInfo || !S.serverInfo.workspace_id) {
       reportError(new Error("server not ready"), { prefix: _t("切换工作目录失败: ") });
@@ -346,17 +218,14 @@ export async function validateWorkDirs() {
         console.warn("[agent] 工作目录不存在，已从配置移除:", path);
       });
     }
+    await fetchWorkdirs();
   } catch (e) {
     console.warn("[agent] 验证工作目录失败:", e);
   }
 }
 
-// ===== 工作区展示（可点击切换） =====
-export function updateWorkspaceSelector() {
-  var nameEl = document.getElementById("agent-workspace-name");
-  if (!nameEl) return;
-
-  var name = S.workspaceInfo ? S.workspaceInfo.name || _t("默认工作区") : _t("默认工作区");
-  nameEl.textContent = name + " ▾";
-  nameEl.title = S.workspaceInfo ? S.workspaceInfo.path || "" : "";
-}
+// ===== 工作区展示 =====
+// 旧下拉标签已移除：工作区树的激活态/计数由 ws_tree.js 渲染时从 store 派生，
+// 切换工作区后的树刷新经 loadConversations → renderConversationList 链路完成。
+// 保留本函数为兼容入口（agent.js / settings_dialog.js 仍有调用点）。
+export function updateWorkspaceSelector() {}

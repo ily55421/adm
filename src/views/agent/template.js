@@ -33,7 +33,7 @@ export const template = `
     overflow: hidden;
   }
 
-  /* ① session-block: 新建会话 + 会话列表 (内部滚动) */
+  /* ① session-block: 工作区分组树（工作区行 + 嵌套会话，内部滚动） */
   .session-block {
     flex: 1;
     min-height: 0;
@@ -41,143 +41,172 @@ export const template = `
     flex-direction: column;
   }
 
-  .sidebar-header {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--c-border);
-    flex-shrink: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .new-chat-btn {
-    width: 100%;
-    background: var(--c-accent);
-    color: #fff;
-    border: none;
-    padding: 6px 10px;
-    border-radius: 5px;
-    font-size: 12px;
-    cursor: pointer;
-    transition: background 0.15s;
-    text-align: center;
-  }
-  .new-chat-btn:hover { background: var(--c-accent-2); }
-
-  /* 对话记录列表头部：标题 + 一键清除全部 */
-  .conv-list-header {
+  /* 工作区分组树：头部（标题+计数+添加） + 可折叠工作区行 + 嵌套会话 */
+  .ws-tree-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 8px;
-    padding: 5px 12px;
-    border-bottom: 1px solid var(--c-raise-2);
+    padding: 12px 14px 8px;
     flex-shrink: 0;
   }
-  .conv-list-title {
-    font-size: 11px;
+  .ws-tree-title {
+    font-size: 13px;
     font-weight: 600;
-    color: var(--c-text-3);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: var(--c-text-2);
   }
-  .conv-clear-btn {
-    background: var(--c-overlay);
-    border: none;
-    border-radius: 4px;
-    color: var(--c-text-3);
+  .ws-tree-count {
     font-size: 11px;
+    color: var(--c-text-4);
+  }
+  .ws-tree-add-btn {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--c-text-3);
+    font-size: 16px;
     line-height: 1;
-    padding: 3px 6px;
     cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 6px;
     transition: background 0.15s, color 0.15s;
   }
-  .conv-clear-btn:hover:not(:disabled) { background: #3d1a1a; color: #ff6b6b; }
-  .conv-clear-btn:disabled { opacity: 0.45; cursor: default; }
+  .ws-tree-add-btn:hover { background: var(--c-overlay-strong); color: #fff; }
 
-  /* 会话列表 — 内部滚动 */
-  .conv-list-section {
+  /* 工作区树 — 内部滚动 */
+  .ws-tree {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    padding: 0 8px 8px;
   }
-  .conv-list-section::-webkit-scrollbar { width: 6px; }
-  .conv-list-section::-webkit-scrollbar-track { background: var(--c-panel); }
-  .conv-list-section::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 3px; }
+  .ws-tree::-webkit-scrollbar { width: 6px; }
+  .ws-tree::-webkit-scrollbar-track { background: var(--c-panel); }
+  .ws-tree::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 3px; }
 
-  .conv-item {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--c-raise-2);
+  .ws-group { margin-bottom: 2px; }
+  .ws-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 8px;
+    border-radius: 8px;
     cursor: pointer;
     transition: background 0.15s;
-    position: relative;
+    user-select: none;
   }
-  .conv-item:hover { background: var(--c-raise); }
-  .conv-item.active {
-    background: var(--c-raise);
-    border-left: 3px solid var(--c-accent);
-    padding-left: 9px;
+  .ws-row:hover { background: var(--c-overlay); }
+  .ws-row.active { background: rgba(var(--c-accent-rgb), 0.15); }
+  .ws-chevron {
+    width: 10px;
+    flex-shrink: 0;
+    text-align: center;
+    color: var(--c-text-4);
+    font-size: 9px;
+    transition: transform 0.15s;
   }
-
-  .conv-item-title {
+  .ws-row.expanded .ws-chevron { transform: rotate(90deg); }
+  .ws-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .ws-name {
+    flex: 1;
+    min-width: 0;
     font-size: 13px;
-    font-weight: 500;
     color: var(--c-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 2px;
+  }
+  .ws-row.active .ws-name { color: var(--c-text-hi); font-weight: 600; }
+  .ws-row-actions { display: none; gap: 2px; flex-shrink: 0; }
+  .ws-row:hover .ws-row-actions,
+  .ws-row.active .ws-row-actions { display: flex; }
+  .ws-action-btn {
+    background: none;
+    border: none;
+    color: var(--c-text-3);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 3px 5px;
+    border-radius: 5px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .ws-action-btn:hover { background: var(--c-overlay-strong); color: #fff; }
+  .ws-action-btn.danger:hover { background: #3d1a1a; color: #ff6b6b; }
+  .ws-action-btn:disabled { opacity: 0.45; cursor: default; }
+
+  .ws-sessions { padding: 0 0 2px 19px; }
+  .ws-session-item {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
   }
-  .conv-item-star { color: var(--c-accent); font-size: 11px; }
-  .conv-item-busy {
-    display: inline-block;
-    width: 10px; height: 10px;
-    border: 2px solid var(--c-border);
-    border-top-color: var(--c-accent);
+  .ws-session-item:hover { background: var(--c-overlay); }
+  .ws-session-item.current { background: rgba(var(--c-accent-rgb), 0.18); }
+  .ws-session-dot {
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    animation: agent-spin 0.8s linear infinite;
+    background: var(--c-text-4);
     flex-shrink: 0;
   }
-  .conv-item-busy.queued {
-    animation: none;
-    border-color: var(--c-border);
-    background: var(--c-text-3);
+  .ws-session-dot.current { background: var(--c-accent); }
+  .ws-session-dot.running {
+    background: #43a047;
+    animation: agent-spin 0.8s linear infinite;
+    border-radius: 50%;
+    border: 2px solid var(--c-border);
+    border-top-color: var(--c-accent);
+    width: 10px;
+    height: 10px;
+    background: transparent;
   }
-  .conv-item-meta {
-    font-size: 11px;
-    color: var(--c-text-3);
-    display: flex;
-    gap: 6px;
-  }
-
-  /* 会话项悬停操作按钮 */
-  .conv-item-actions {
-    display: none;
-    position: absolute;
-    right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
-    gap: 2px;
-  }
-  .conv-item:hover .conv-item-actions { display: flex; }
-  .conv-action-btn {
-    background: var(--c-overlay);
-    border: none;
+  .ws-session-dot.queued { background: #d29922; }
+  .ws-session-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
     color: var(--c-text-2);
-    width: 22px; height: 22px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 11px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .conv-action-btn:hover { background: var(--c-overlay-strong); color: #fff; }
-  .conv-action-btn.delete:hover { background: #3d1a1a; color: #ff6b6b; }
+  .ws-session-item.current .ws-session-title { color: var(--c-text-hi); }
+  .ws-session-actions { display: none; gap: 2px; flex-shrink: 0; }
+  .ws-session-item:hover .ws-session-actions { display: flex; }
+  .ws-more-btn {
+    background: none;
+    border: none;
+    color: var(--c-text-4);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 8px;
+    margin-left: 12px;
+    text-align: left;
+    border-radius: 6px;
+  }
+  .ws-more-btn:hover { color: var(--c-text-2); background: var(--c-overlay); }
+  .ws-empty-hint {
+    padding: 4px 8px;
+    margin-left: 12px;
+    font-size: 12px;
+    color: var(--c-text-4);
+  }
 
   /* ② tools-block: Skills/MCP/LSP (固定高度, 内部滚动) */
   .tools-section {
@@ -328,89 +357,6 @@ export const template = `
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-
-  .workspace-selector {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    background: var(--c-bg-deep);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    user-select: none;
-    cursor: pointer;
-    position: relative;
-  }
-  .workspace-icon { font-size: 14px; }
-  .workspace-label {
-    font-size: 12px;
-    color: var(--c-text-2);
-    flex-shrink: 0;
-  }
-  .workspace-name {
-    flex: 1;
-    font-size: 12px;
-    color: var(--c-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-  }
-
-  .workdir-dropdown {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    right: 0;
-    background: var(--c-bg-deep);
-    border: 1px solid var(--c-border);
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    z-index: 100;
-    max-height: 300px;
-    overflow-y: auto;
-    padding: 4px 0;
-  }
-  .workdir-dropdown-item {
-    padding: 6px 10px;
-    font-size: 12px;
-    color: var(--c-text);
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .workdir-dropdown-item:hover {
-    background: var(--c-bg-hover, rgba(255,255,255,0.08));
-  }
-  .workdir-dropdown-item.active {
-    color: var(--c-accent, #3b82f6);
-  }
-  .workdir-dropdown-item.add {
-    color: var(--c-accent, #3b82f6);
-    border-top: 1px solid var(--c-border);
-    margin-top: 2px;
-    padding-top: 8px;
-  }
-  .workdir-dropdown-sep {
-    height: 1px;
-    background: var(--c-border);
-    margin: 2px 0;
-  }
-  .workdir-dropdown-del {
-    flex-shrink: 0;
-    cursor: pointer;
-    font-size: 13px;
-    line-height: 1;
-    color: var(--c-text-2, #bbb);
-    padding: 2px 5px;
-    border-radius: 4px;
-    transition: color 0.15s, background-color 0.15s;
-  }
-  .workdir-dropdown-del:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.15);
   }
 
   .settings-btn-sidebar {
@@ -1935,23 +1881,13 @@ export const template = `
     <div class="agent-sidebar">
       <!-- ① session-block: 新建会话 + 会话列表 (内部滚动) -->
       <div class="session-block">
-        <div class="sidebar-header">
-          <div class="workspace-selector" id="agent-workspace-selector">
-            <span class="workspace-label">${_t("工作目录")}</span>
-            <span class="workspace-icon">📁</span>
-            <span class="workspace-name" id="agent-workspace-name">${_t("默认工作区")}</span>
-          </div>
-          <button class="new-chat-btn" id="agent-new-chat">＋ ${_t("新建会话")}</button>
+        <div class="ws-tree-header">
+          <span class="ws-tree-title">${_t("工作区")}</span>
+          <span class="ws-tree-count" id="agent-ws-count">0</span>
+          <button class="ws-tree-add-btn" id="agent-ws-add" title="${_t("添加工作目录")}">＋</button>
         </div>
-        <!-- 对话记录：单一列表头部（标题 + 一键清除所有对话） -->
-        <div class="conv-list-header">
-          <span class="conv-list-title">${_t("对话记录")}</span>
-          <button class="conv-clear-btn" id="agent-conv-clear-all" title="${_t("清除所有对话")}" disabled>🗑 ${_t("清除全部")}</button>
-        </div>
-        <!-- 会话列表 (内部滚动) -->
-        <div class="conv-list-section" id="agent-conv-list">
-          <!-- 首次进入时的骨架屏（init() 完成由 renderConversationList 清空重绘） -->
-          <div class="skeleton-conv-item"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
+        <!-- 工作区树（首次进入的骨架屏由 renderWorkspaceTree 清空重绘） -->
+        <div class="ws-tree" id="agent-ws-tree">
           <div class="skeleton-conv-item"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
           <div class="skeleton-conv-item"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>
           <div class="skeleton-conv-item"><div class="skeleton-line"></div><div class="skeleton-line"></div></div>

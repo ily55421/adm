@@ -3,6 +3,7 @@ import { t as _t } from "../../i18n.js";
 import { S, invoke, store } from "./store.js";
 import { api } from "./api.js";
 import { escapeHtml, formatTime } from "./utils.js";
+import { renderWorkspaceTree } from "./ws_tree.js";
 import { showError, showConfirm, showInfo, reportError, exitManualScrollMode, clearErrorNotices, updateContextUsage, updateStatusBar, updateSendButton, clearSendSafetyTimer } from "./ui.js";
 import { getErrorMessage } from "./error.js";
 import { renderMessages, renderTodos, roundOutlineEntries } from "./render.js";
@@ -17,6 +18,11 @@ var autoCreateStrikes = 0;
 
 // 一键清除是否进行中：期间禁用「清除全部」按钮，防重复点击后对已删会话再次 DELETE
 var clearAllInFlight = false;
+
+/** 树内「🗑 清除全部」按钮的禁用态（清空中禁点，避免重复提交） */
+export function isClearAllInFlight() {
+  return clearAllInFlight;
+}
 
 // 同步当前会话 ID 给微信 Bridge（跟随模式下微信消息以此为目标会话）；fire-and-forget
 export function syncWxFollowSession() {
@@ -97,90 +103,10 @@ export async function loadConversations(restoreCurrent) {
 }
 
 export function renderConversationList() {
-  const container = document.getElementById("agent-conv-list");
-  if (!container) return;
-  ensureConvListDelegation(container);
-
-  // 单一「对话记录」列表：始终展示全部会话（当前会话以 ★ + 高亮标识）
-  var list = S.conversations;
-
-  // 无会话 / 正在清除时禁用「清除全部」，避免空点与重复点击
-  var clearBtn = /** @type {HTMLButtonElement} */ (document.getElementById("agent-conv-clear-all"));
-  if (clearBtn) clearBtn.disabled = clearAllInFlight || list.length === 0;
-
-  if (list.length === 0) {
-    container.innerHTML = '<div style="padding:12px 14px;color:var(--c-text-4);font-size:12px;">' + _t("暂无会话") + '</div>';
-    return;
-  }
-
-  // 批量构建后一次性挂载（Fragment），避免逐条 append 触发多次布局
-  var frag = document.createDocumentFragment();
-  list.forEach(function(conv) {
-    var item = document.createElement("div");
-    var isActive = conv.id === S.currentConvId;
-    item.className = "conv-item" + (isActive ? " active" : "");
-    if (conv.id != null) item.setAttribute("data-conv-id", String(conv.id));
-    var msgCount = conv.message_count || conv.messages || 0;
-    var lastTime = conv.updated_at || conv.last_time || "";
-    // 运行/排队标识：以本工作区的运行登记为准（更实时，支持多会话并行），
-    // 服务端 is_busy 快照兜底（如微信 Bot 等后台会话的运行）
-    var activeRunInfo = (S.runs || []).find(function(r) { return r.sessionId === conv.id && !r.queued; });
-    var queuedRunInfo = !activeRunInfo && (S.runs || []).find(function(r) { return r.sessionId === conv.id && r.queued; });
-    var isActiveRun = !!activeRunInfo;
-    var isQueuedRun = !!queuedRunInfo;
-    var isBusy = isActiveRun || isQueuedRun || conv.is_busy || conv.busy || false;
-
-    var starHtml = isActive ? '<span class="conv-item-star">★</span>' : '';
-    var busyHtml = isBusy
-      ? '<span class="conv-item-busy' + (isQueuedRun ? " queued" : "") + '" title="' + (isQueuedRun ? _t("排队中") : _t("运行中")) + '"></span>'
-      : '';
-
-    item.innerHTML =
-      '<div class="conv-item-title">' + starHtml + busyHtml +
-        '<span style="overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(conv.title || conv.name || _t("新会话")) + "</span>" +
-      "</div>" +
-      '<div class="conv-item-meta">' +
-        '<span>' + msgCount + ' ' + _t(' 条消息') + '</span>' +
-        (lastTime ? '<span>' + formatTime(lastTime) + "</span>" : "") +
-      "</div>" +
-      '<div class="conv-item-actions">' +
-        '<button class="conv-action-btn" data-action="rename" title="' + _t("重命名") + '">✎</button>' +
-        '<button class="conv-action-btn delete" data-action="delete" title="' + _t("删除") + '">✕</button>' +
-      "</div>";
-
-    frag.appendChild(item);
-  });
-  container.innerHTML = "";
-  container.appendChild(frag);
-
-  // 同步刷新侧栏列表；聊天区右侧的消息大纲（outline）由 renderMessages 负责调度刷新，
-  // 避免在切会话时与消息列表对账时机错位（消息未加载完时显示旧数据）。
-}
-
-// 会话列表事件委托：列表项随渲染整体重建，click 委托在容器上只挂一次
-// （重新挂载后 DOM 换新会自动重挂）。动作按钮命中时阻止冒泡，避免误触选中会话。
-function ensureConvListDelegation(container) {
-  var cref = /** @type {any} */ (container);
-  if (cref._admConvDelegated) return;
-  cref._admConvDelegated = true;
-  container.addEventListener("click", function(e) {
-    var target = e.target instanceof Element ? e.target : null;
-    if (!target) return;
-    var btn = target.closest(".conv-action-btn");
-    if (btn) {
-      e.stopPropagation();
-      var actItem = btn.closest(".conv-item");
-      var action = btn.getAttribute("data-action") || "";
-      var actionConvId = actItem ? actItem.getAttribute("data-conv-id") : null;
-      if (actionConvId) handleConvAction(action, actionConvId);
-      return;
-    }
-    var item = target.closest(".conv-item");
-    if (item) {
-      var convId = item.getAttribute("data-conv-id");
-      if (convId) selectConversation(convId);
-    }
-  });
+  // 会话列表已并入左侧「工作区分组树」（ws_tree.js）：本函数保留为兼容入口，
+  // 切换工作区/会话增删/SSE 刷新等既有调用点无需改动。
+  // 工作区树内部按 workspace 状态池取各目录的会话（激活工作区取 S.conversations 最新值）。
+  renderWorkspaceTree();
 }
 
 // ===== 一键清除所有对话（当前工作区） =====
@@ -510,7 +436,7 @@ export function toggleOutlinePanel() {
   setOutlinePanelOpen(!isOutlinePanelOpen());
 }
 
-function handleConvAction(action, convId) {
+export function handleConvAction(action, convId) {
   switch (action) {
     case "rename":
       var oldConv = S.conversations.find(function(c) { return c.id === convId; });

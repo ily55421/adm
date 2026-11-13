@@ -8,14 +8,15 @@ import { log, setLogEnabled } from "./agent/log.js";
 import { api } from "./agent/api.js";
 import { generateUUID, isFullyAtBottom, autoResize, $input, applyReasoningSetting } from "./agent/utils.js";
 import { updateStatusBar, updateContextUsage, updateSendButton, exitManualScrollMode, startSendSafetyTimer, clearSendSafetyTimer, showError, showWarning, showInfo, showConfirm, showCopyPasteMenu, updateScrollBottomBtn, reportError, showInitProgress, hideInitProgress } from "./agent/ui.js";
-import { loadConversations, selectConversation, newConversation, clearAllConversations, toggleOutlinePanel, setOutlinePanelOpen, renderConversationList } from "./agent/session.js";
+import { loadConversations, selectConversation, toggleOutlinePanel, setOutlinePanelOpen, renderConversationList } from "./agent/session.js";
 import { syncWorkingIndicator, onAreaScroll, scrollChatToBottom, beginSelectGuard, endSelectGuard, resetSelectGuard } from "./agent/render.js";
 import { sendMessage, cancelCurrentRun, sendMessageWithFiles } from "./agent/send.js";
 import { setupSSEListener, cancelScheduledLoadTools, cancelRunCompleteFallback, cancelDiscardFallback } from "./agent/sse.js";
 import { syncModeToServer } from "./agent/permission.js";
 import { loadTools, activateToolsTab } from "./agent/tools.js";
 import { switchModel, refreshServerProviders, resolveAgentModel, updateModelDropdown, updateModelBtn, refreshAgentInfo, setAddCloudModelHandler } from "./agent/model.js";
-import { enableAutoCompact, updateWorkspaceSelector, toggleWorkDirDropdown, closeWorkDirDropdown, validateWorkDirs } from "./agent/workspace.js";
+import { enableAutoCompact, updateWorkspaceSelector, validateWorkDirs } from "./agent/workspace.js";
+import { addWorkDir } from "./agent/ws_tree.js";
 import { showSettings, hideSettings, updateSettingsUI, saveSettings, showAddModelDialog, hideAddModelDialog, addModel, renderVisionModelSelect, updateProviderKeyHint, initModelIdFetch, BUILTIN_VISION_KEY } from "./agent/settings_dialog.js";
 import { addPendingFiles, parseUriListPaths, addPastedPaths, looksLikeFilePath } from "./agent/attach.js";
 import { bindSkillSelectorEvents, initSkillSelector, clearAttachedSkillsAfterSend } from "./agent/skill_selector.js";
@@ -433,10 +434,8 @@ async function handleConfigRestored(ev) {
 function bindEvents() {
   // PDF 批次泵的发送函数注入（send.js 与 pdf_batch.js 互相依赖，用注入避免模块循环）
   initPdfBatching(sendMessageWithFiles);
-  // 新会话
-  document.getElementById("agent-new-chat").addEventListener("click", newConversation);
-  // 一键清除所有对话（当前工作区）
-  document.getElementById("agent-conv-clear-all").addEventListener("click", clearAllConversations);
+  // 工作区树头部「＋」：添加工作目录（新建会话/清除全部已并入树内工作区行的悬停操作）
+  document.getElementById("agent-ws-add").addEventListener("click", addWorkDir);
 
   // 微信消息开关（模型选择旁）：开 = 微信 Bot 消息注入当前打开的会话
   // 只有微信 Bot 服务已启动（state===running）才允许开启；未启动弹提示引导去设置页。
@@ -508,16 +507,6 @@ function bindEvents() {
   document.getElementById("agent-settings-close").addEventListener("click", hideSettings);
   // 项目记忆弹窗交互（toolbar 按钮 / 条目增删改 / 压缩时自动提取开关）
   initProjectMemoryUI();
-
-  // 工作区选择器点击 → 下拉列表
-  var wsSelector = document.getElementById("agent-workspace-selector");
-  if (wsSelector) {
-    wsSelector.style.cursor = "pointer";
-    wsSelector.addEventListener("click", function(e) {
-      e.stopPropagation();
-      toggleWorkDirDropdown();
-    });
-  }
 
   // 设置项即时生效：任一字段变更立即应用并持久化（无保存/取消按钮）
   ["settings-debug-logging", "settings-reasoning-effort", "settings-temperature", "settings-vision-model", "settings-allow-all-tools", "settings-concurrent-sessions"].forEach(function(id) {
@@ -1011,8 +1000,6 @@ export default {
     // 隐藏 init 进度条（init 还在跑的情况下，DOM 即将被 router 清空，但保险起见显式隐藏一次）
     hideInitProgress();
     S.pendingFiles = [];
-    // 关闭工作目录下拉（清理 DOM 和文档级监听器）
-    closeWorkDirDropdown();
     // 重置手动滚动模式
     exitManualScrollMode();
     clearSendSafetyTimer();

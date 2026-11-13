@@ -335,9 +335,9 @@ export function hideInitProgress() {
   if (msgArea && msgArea.querySelector(".agent-loading")) {
     msgArea.innerHTML = '<div class="empty-state"><span class="empty-state-icon">🤖</span><span class="empty-state-text">' + _t("开始一个新的对话") + '</span></div>';
   }
-  var convList = document.getElementById("agent-conv-list");
+  var convList = document.getElementById("agent-ws-tree");
   if (convList && convList.querySelector(".skeleton-conv-item")) {
-    convList.innerHTML = '<div style="padding:12px 14px;color:var(--c-text-4);font-size:12px;">' + _t("暂无会话") + '</div>';
+    convList.innerHTML = '<div class="ws-empty-hint">' + _t("暂无会话") + '</div>';
   }
   var toolsList = document.getElementById("agent-tools-list");
   if (toolsList && toolsList.querySelector(".skeleton-tool-item")) {
