@@ -47,6 +47,9 @@ ADMX 全新安装从零开始积累配置，不读原版数据（这是有意为
 
 ## 打包注意（Windows 本地 Git Bash 环境）
 
+Git Bash 下静默安装 NSIS 包时，裸传 `/S` 会被 MSYS 路径转换吞掉（安装器进交互模式挂起等点击），
+需走 cmd 包装：`cmd //c "ADMX_0.8.3_x64-setup.exe /S"`。
+
 `scripts/prepare-agent-binary.mjs` 用 `execFileSync("tar", ...)` 解压 adm-binaries 的 zip：
 在 PowerShell / CI 里解析到 System32 的 bsdtar（支持 zip），在 Git Bash 里会解析到
 GNU tar（不支持 zip，报 status 128）。本地 Git Bash 打包前手动解一次即可：
