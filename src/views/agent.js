@@ -6,7 +6,7 @@ import { template } from "./agent/template.js";
 import { S, invoke, listen, store } from "./agent/store.js";
 import { log, setLogEnabled } from "./agent/log.js";
 import { api } from "./agent/api.js";
-import { generateUUID, isFullyAtBottom, autoResize, $input, applyReasoningSetting } from "./agent/utils.js";
+import { generateUUID, isFullyAtBottom, autoResize, $input } from "./agent/utils.js";
 import { updateStatusBar, updateContextUsage, updateSendButton, exitManualScrollMode, startSendSafetyTimer, clearSendSafetyTimer, showError, showWarning, showInfo, showConfirm, showCopyPasteMenu, updateScrollBottomBtn, reportError, showInitProgress, hideInitProgress } from "./agent/ui.js";
 import { loadConversations, selectConversation, toggleOutlinePanel, setOutlinePanelOpen, renderConversationList } from "./agent/session.js";
 import { syncWorkingIndicator, onAreaScroll, scrollChatToBottom, beginSelectGuard, endSelectGuard, resetSelectGuard } from "./agent/render.js";
@@ -17,7 +17,7 @@ import { loadTools, activateToolsTab } from "./agent/tools.js";
 import { switchModel, refreshServerProviders, resolveAgentModel, updateModelDropdown, updateModelBtn, refreshAgentInfo, setAddCloudModelHandler } from "./agent/model.js";
 import { enableAutoCompact, updateWorkspaceSelector, validateWorkDirs } from "./agent/workspace.js";
 import { addWorkDir } from "./agent/ws_tree.js";
-import { showSettings, hideSettings, updateSettingsUI, saveSettings, showAddModelDialog, hideAddModelDialog, addModel, renderVisionModelSelect, updateProviderKeyHint, initModelIdFetch, BUILTIN_VISION_KEY } from "./agent/settings_dialog.js";
+import { showSettings, hideSettings, updateSettingsUI, saveSettings, renderVisionModelSelect, BUILTIN_VISION_KEY } from "./agent/settings_dialog.js";
 import { addPendingFiles, parseUriListPaths, addPastedPaths, looksLikeFilePath } from "./agent/attach.js";
 import { bindSkillSelectorEvents, initSkillSelector, clearAttachedSkillsAfterSend } from "./agent/skill_selector.js";
 import { bindCompactBtnEvents } from "./agent/compact.js";
@@ -25,6 +25,7 @@ import { initUndo } from "./agent/undo.js";
 import { initMcpDialogUI } from "./agent/mcp_dialog.js";
 import { initPdfBatching, reconcilePdfBatching } from "./agent/pdf_batch.js";
 import { bindDecisionModeEvents, updateDecisionModeUI } from "./agent/decision_mode.js";
+import { bindReasoningSelectorEvents, updateReasoningUI } from "./agent/reasoning.js";
 import { initProjectMemoryUI } from "./agent/memory.js";
 
 // ===== 初始化 =====
@@ -211,6 +212,7 @@ async function _doInit(seq) {
   updateModelDropdown();
   updateSettingsUI();
   updateDecisionModeUI();
+  updateReasoningUI();
   if (seq !== S.initSeq) return;
 
   // 异步加载用户技能列表（不阻塞 init 主体；首屏渲染已含空态占位）
@@ -508,8 +510,10 @@ function bindEvents() {
   // 项目记忆弹窗交互（toolbar 按钮 / 条目增删改 / 压缩时自动提取开关）
   initProjectMemoryUI();
 
-  // 设置项即时生效：任一字段变更立即应用并持久化（无保存/取消按钮）
-  ["settings-debug-logging", "settings-reasoning-effort", "settings-temperature", "settings-vision-model", "settings-allow-all-tools", "settings-concurrent-sessions"].forEach(function(id) {
+  // 设置项即时生效：任一字段变更立即应用并持久化（无保存/取消按钮）。
+  // 推理强度已移到工具栏模型选择右侧（reasoning.js 自行处理改值+推送）；
+  // 工作区选择器已改为侧栏常驻工作区树（ws_tree.js 自行接线，无下拉交互）
+  ["settings-debug-logging", "settings-temperature", "settings-vision-model", "settings-allow-all-tools", "settings-concurrent-sessions"].forEach(function(id) {
     $input(id).addEventListener("change", applySettings);
   });
 
@@ -524,11 +528,6 @@ function bindEvents() {
 
   // 从所有设置弹窗字段读取并保存（即时生效，弹窗保持打开）
   async function applySettings() {
-    // 思考开关与推理强度已合并为单个下拉：选「关闭」只翻 thinking_enabled，
-    // 档位本身保留，切回具体强度时恢复用户原来的选择。
-    var reasoning = applyReasoningSetting($input("settings-reasoning-effort").value, S.settings.agent_reasoning_effort);
-    S.settings.agent_thinking_enabled = reasoning.enabled;
-    S.settings.agent_reasoning_effort = reasoning.effort;
     var tempVal = $input("settings-temperature").value;
     S.settings.agent_temperature = tempVal ? parseFloat(tempVal) : null;
     S.settings.agent_vision_model = $input("settings-vision-model").value || BUILTIN_VISION_KEY;
@@ -560,12 +559,11 @@ function bindEvents() {
     }
   }
 
-  // 云端模型管理
-  document.getElementById("agent-add-cloud-btn").addEventListener("click", showAddModelDialog);
-
-  // 模型下拉最底部的「+ 添加云端模型」入口（与上面按钮同一逻辑；
-  // 经 model.js 的注入回调，避免 model.js ↔ settings_dialog.js 循环依赖）
-  setAddCloudModelHandler(showAddModelDialog);
+  // 云端模型管理已独立成页（底部导航「云端模型」）：模型下拉底部的「+ 添加云端模型」
+  // 入口直接跳转过去并自动打开添加弹窗（Agent 运行中由路由拦截，不离开本页）
+  setAddCloudModelHandler(function() {
+    location.hash = "#/cloud?add=1";
+  });
 
   // 模型下拉
   document.getElementById("agent-model-btn").addEventListener("click", function(e) {
@@ -576,18 +574,22 @@ function bindEvents() {
       updateModelDropdown();
       renderVisionModelSelect();
     });
-    // 互斥：打开模型下拉时关闭技能下拉
+    // 互斥：打开模型下拉时关闭技能/决策/推理强度下拉
     var skillDd = document.getElementById("agent-skill-dropdown");
     if (skillDd) skillDd.classList.remove("show");
     var decisionDd = document.getElementById("agent-decision-mode-dropdown");
     if (decisionDd) decisionDd.classList.remove("show");
+    var reasoningDd = document.getElementById("agent-reasoning-dropdown");
+    if (reasoningDd) reasoningDd.classList.remove("show");
     document.getElementById("agent-model-dropdown").classList.toggle("show");
   });
   var closeToolbarDropdowns = function() {
     var dd = document.getElementById("agent-model-dropdown");
     var decisionDd = document.getElementById("agent-decision-mode-dropdown");
+    var reasoningDd = document.getElementById("agent-reasoning-dropdown");
     if (dd) dd.classList.remove("show");
     if (decisionDd) decisionDd.classList.remove("show");
+    if (reasoningDd) reasoningDd.classList.remove("show");
   };
   document.addEventListener("click", closeToolbarDropdowns);
   S.unlisteners.push(function() {
@@ -595,20 +597,10 @@ function bindEvents() {
   });
 
   bindDecisionModeEvents();
+  bindReasoningSelectorEvents();
 
   // 技能下拉（用户/项目技能，选中后随下一条消息发送）
   bindSkillSelectorEvents();
-
-  // 模型添加
-  document.getElementById("agent-add-model-close").addEventListener("click", hideAddModelDialog);
-  document.getElementById("add-model-submit").addEventListener("click", addModel);
-  // 名称/模型ID 输入时同步展示派生出的 providers 键（同名冲突会标红，避免静默覆盖）
-  ["add-model-name", "add-model-modelid"].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.addEventListener("input", updateProviderKeyHint);
-  });
-  // baseurl/apikey 变化时拉取 /models 候选列表（datalist）
-  initModelIdFetch();
 
   // MCP 管理（MCP tab 添加按钮 + 列表点击编辑 + 添加/修改弹窗）
   initMcpDialogUI();

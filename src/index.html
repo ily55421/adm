@@ -115,6 +115,7 @@
 
     #settings-btn,
     #agent-btn,
+    #cloud-btn,
     #skills-btn {
       cursor: pointer;
       font-size: 13px;
@@ -140,12 +141,14 @@
 
     #settings-btn:hover,
     #agent-btn:hover,
+    #cloud-btn:hover,
     #skills-btn:hover {
       color: var(--c-accent);
     }
 
     #settings-btn.active,
     #agent-btn.active,
+    #cloud-btn.active,
     #skills-btn.active {
       background: rgba(var(--c-accent-rgb), 0.20);
       color: var(--c-text-hi);
@@ -154,6 +157,7 @@
     }
     #settings-btn.active .btn-icon,
     #agent-btn.active .btn-icon,
+    #cloud-btn.active .btn-icon,
     #skills-btn.active .btn-icon {
       color: var(--c-accent);
     }
@@ -381,6 +385,10 @@
         <span class="btn-icon">&#129302;</span>
         <span class="btn-text" data-i18n="Agent">Agent</span>
       </div>
+      <div id="cloud-btn" onclick="navigateTo('/cloud')">
+        <span class="btn-icon">&#9729;</span>
+        <span class="btn-text" data-i18n="云端模型">云端模型</span>
+      </div>
       <div id="skills-btn" onclick="navigateTo('/skills')">
         <span class="btn-icon">🧩</span>
         <span class="btn-text" data-i18n="技能管理">技能管理</span>
@@ -463,7 +471,7 @@
 
     // ===== 导航激活态 =====
     function setActiveNav(id) {
-      ["settings-btn", "agent-btn", "skills-btn"].forEach(function (b) {
+      ["settings-btn", "agent-btn", "cloud-btn", "skills-btn"].forEach(function (b) {
         const el = document.getElementById(b);
         if (el) el.classList.toggle("active", b === id);
       });
@@ -508,6 +516,8 @@
 
     let pendingLlamacppResult = null;
     let vcRedistMandatory = false;
+    // 平台未提供安装包地址时，「查看更新内容」用的一次性链接（appUpdate 链路直接用 appUpdate.changelogUrl）
+    let systemUpdateChangelogUrl = "";
 
     // 独立于网络更新的 VC++ 运行库检测（后端 check_vc_redist 不走网络）：
     // 检测本身出错时按“已安装”处理，避免误拦正常用户
@@ -543,6 +553,7 @@
           // 只提示版本、不渲染会点空的下载按钮；静默检查则完全不打扰用户
           if (!silent) {
             pendingLlamacppResult = result;
+            systemUpdateChangelogUrl = /^https?:\/\//i.test(String(result.changelog_url || "")) ? result.changelog_url : "";
             const html = `
               <div class="update-icon">📥</div>
               <div class="update-title">${t("发现新版本")}</div>
@@ -552,6 +563,7 @@
                 <div class="info-item"><div class="info-label">${t("最新版本")}</div><div class="info-value">v${escHtml(result.remote_version)}</div></div>
               </div>
               <div class="update-buttons">
+                ${systemUpdateChangelogUrl ? `<button class="update-btn-secondary" onclick="onSystemUpdateChangelog()">${t("查看更新内容")}</button>` : ""}
                 <button class="update-btn-secondary" onclick="onSystemUpdateDismiss()">${t("稍后再说")}</button>
               </div>`;
             showUpdateDialog(html);
@@ -670,6 +682,10 @@
 
     function renderAppUpdateDialog() {
       if (!appUpdate) return;
+      // update.json 各平台的 content 字段（更新内容链接）；无有效链接时不渲染按钮
+      const changelogBtn = /^https?:\/\//i.test(String(appUpdate.changelogUrl || ""))
+        ? `<button class="update-btn-secondary" onclick="onAppUpdateChangelog()">${t("查看更新内容")}</button>`
+        : "";
       const versionRow = `
         <div class="update-info-row">
           <div class="info-item"><div class="info-label">${t("当前版本")}</div><div class="info-value">v${escHtml(appUpdate.currentVersion || "")}</div></div>
@@ -685,6 +701,7 @@
           ${versionRow}
           <div class="update-buttons">
             <button class="update-btn-primary" onclick="onAppUpdateInstall()">${t("立即升级")}</button>
+            ${changelogBtn}
             <button class="update-btn-secondary" onclick="onSystemUpdateDismiss()">${t("稍后再说")}</button>
           </div>
           <div class="update-buttons" style="margin-top:10px;">
@@ -721,6 +738,7 @@
         <div class="llamacpp-progress-bar"><div class="llamacpp-progress-fill" id="app-update-progress-fill" style="width: ${Number(appUpdate.progress) || 0}%"></div></div>
         <div class="llamacpp-status-text" id="app-update-status-text">${t("正在下载... ")}${Number(appUpdate.progress) || 0}%</div>
         <div class="update-buttons" style="margin-top:16px;">
+          ${changelogBtn}
           <button class="update-btn-secondary" onclick="hideUpdateDialog()">${t("后台下载，稍后再说")}</button>
         </div>`, "app-update");
     }
@@ -746,12 +764,14 @@
       if (appUpdate && appUpdate.version === result.remote_version
         && (appUpdate.status === "downloading" || appUpdate.status === "ready")) {
         if (opts.manual) appUpdate.manual = true;
+        if (result.changelog_url) appUpdate.changelogUrl = result.changelog_url;
         return false;
       }
       appUpdate = {
         version: result.remote_version,
         currentVersion: result.current_version,
         downloadUrl: result.download_url,
+        changelogUrl: result.changelog_url || "",
         path: null,
         status: "downloading",
         progress: 0,
@@ -831,6 +851,7 @@
       const result = {
         has_update: true,
         download_url: appUpdate.downloadUrl,
+        changelog_url: appUpdate.changelogUrl,
         remote_version: appUpdate.version,
         current_version: appUpdate.currentVersion,
       };
@@ -847,6 +868,15 @@
       }
       startAppUpdateDownload(result, { manual: true });
       renderAppUpdateDialog();
+    }
+
+    // 打开 update.json 各平台 content 字段里的更新内容链接
+    function onAppUpdateChangelog() {
+      if (appUpdate) openUrl(appUpdate.changelogUrl);
+    }
+
+    function onSystemUpdateChangelog() {
+      if (systemUpdateChangelogUrl) openUrl(systemUpdateChangelogUrl);
     }
 
     // 在文件管理器中定位安装包（deb 自动安装失败时方便用户手动执行命令）
@@ -1093,6 +1123,8 @@
     window.onAppUpdateRetry = onAppUpdateRetry;
     window.onAppUpdateReveal = onAppUpdateReveal;
     window.onAppUpdateSkipVersion = onAppUpdateSkipVersion;
+    window.onAppUpdateChangelog = onAppUpdateChangelog;
+    window.onSystemUpdateChangelog = onSystemUpdateChangelog;
 
     // ===== 硬件栏 =====
     // 显卡栏：多张显卡时渲染下拉逐卡查看（卡名 + 显存），单卡/无卡维持原文本显示
@@ -1170,11 +1202,12 @@
     }
 
     // ===== 路由器 =====
-    // ADMX 分支：模型列表（首页）入口已移除，仅保留 设置 / Agent / 技能管理 三个页面，
-    // 默认路由与未知 hash 的兜底都落到 /agent（model_list.js 保留但不被任何路由引用）。
+    // ADMX 分支：模型列表（首页）入口已移除，保留 设置 / Agent / 云端模型 / 技能管理 页面
+    // （/cloud 为上游 0.8.3 新增的云端模型管理页；/list 路由仍删除，model_list.js 保留但不被任何路由引用）。
     const routes = {
       "/settings": { load: () => import("./views/settings.js"),       nav: "settings-btn" },
       "/agent":    { load: () => import("./views/agent.js"),          nav: "agent-btn" },
+      "/cloud":    { load: () => import("./views/cloud_models.js"),   nav: "cloud-btn" },
       "/skills":   { load: () => import("./views/skills.js"),         nav: "skills-btn" },
     };
 
