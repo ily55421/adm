@@ -7,6 +7,10 @@
 > Handler 实现：`internal/server/proto.go`、`internal/server/config.go`
 >
 > 数据结构定义：`internal/proto/`
+>
+> **实现状态**：本契约由真实 admAgent 服务端实现；桌面端内嵌还原（`desktop/internal/server`）
+> 覆盖 GUI 依赖子集，差异清单见 [adm-server-embedded.md](adm-server-embedded.md) §2.2。
+> 契约以本文档为准，内嵌未实现的端点不改变语义。
 
 ---
 

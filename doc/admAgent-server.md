@@ -1,6 +1,10 @@
 # admAgent 服务端约定与调优
 
 > 范围：服务端（Go）行为与前后端契约 —— Agent loop 抖动恢复、上下文压缩与事实块、系统提示词预算与提示词缓存、归档编号、决策输出模式、代理链路、配置词表。改动前先读本文对应小节。
+>
+> **实现状态**：本文描述真实 admAgent 服务端（只读）。桌面端内嵌还原（`desktop/internal/server`）
+> 实现其中 GUI 依赖子集，未覆盖项（loop 抖动恢复、压缩事实块、todos nudge、hooks、LSP/MCP 等）
+> 见 [adm-server-embedded.md](adm-server-embedded.md) §2.2；本文仍是契约权威。
 
 ---
 

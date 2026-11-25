@@ -28,6 +28,8 @@
 | CI、打包、sidecar 分发与更新链路（`build.yml`、`prepare-agent-binary.mjs`、`tauri.conf.json` 打包项） | [build-and-release.md](build-and-release.md) |
 | 调试日志标记、工作边界与流程约定 | 本文件 |
 | HTTP API 端点 / 字段（`admAgent/internal/server`、`internal/proto`） | [server-api.md](server-api.md) |
+| 内嵌 server（`desktop/internal/server/**`、`desktop/internal/adm/embedded.go`、boot 决策）——**已弃用冻结** | [adm-server-embedded.md](adm-server-embedded.md) |
+| 原生 GUI（`desktop/**`、ADMX/viva）任何改动请求 | 先按根 `AGENTS.md` 硬规则 7 拒绝；确需重启时同步 [viva-windows-native-plan.md](viva-windows-native-plan.md) §18 与 [adm-server-embedded.md](adm-server-embedded.md) 顶部横幅 |
 | agent 行为 eval（`admAgent/internal/eval`、`internal/cmd/eval.go`、`admAgent/scripts/eval.*`、fixture / 任务 JSON / 基线） | [admAgent-eval-harness-plan.md](admAgent-eval-harness-plan.md) |
 | 新增 / 删除 / 改名文档，或模块归属变化 | `AGENTS.md` 的「文档索引」「项目结构」 |
 

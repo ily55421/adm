@@ -10,6 +10,9 @@
 - `pnpm tauri clean` — 清理构建产物
 - `pnpm tauri:build:windows` / `:macos` / `:linux` — 跨平台构建
 - `pnpm typecheck` — 前端类型检查（tsc --noEmit，只检查不产出，改完前端必跑）
+- ⛔ **不要用原生 GUI 链路**：`desktop/`（ADMX/viva）已弃用冻结，禁止跑 `cd desktop; go build ./...`、
+   viva `dev` / `package`、`go build -tags vivahead` 等原生构建/打包命令；编译与发布只走下面的
+   `src/` + `src-tauri/` 与 `pnpm tauri *`。
 
 ### admAgent（Go，`admAgent/` 目录内执行）
 - `go build ./...` — 编译检查
@@ -21,12 +24,21 @@
 
 ## 硬规则（违反会返工）
 
-1. **先确认改动目标**：桌面端 = `src/` + `src-tauri/`，TUI / 服务端 = `admAgent/`；未经明确指示不混改两端。
+1. **先确认改动目标**：桌面端 = `src/` + `src-tauri/`（Tauri 承载的 Web/HTML 前端，唯一交付目标），TUI / 服务端 = `admAgent/`；未经明确指示不混改两端。
 2. **`admAgent/` 目录只读**：需要结论先搜源码；确认是 admAgent 的问题时，列出问题与改动点交给用户审核，不要直接改。
 3. **改完 Go 代码必须重新编译并推送 sidecar**（`admAgent/build.ps1` → `pnpm agent:push`）才在 ADM 里生效。
 4. 前端改动跑 `pnpm typecheck`；仓库没有 linter / formatter / 测试框架，不要新增。
 5. **代码改动必须同步更新对应文档**：同一次改动里改完，映射表见 [`doc/conventions.md`](doc/conventions.md#文档同步更新强制)；行为/契约变了而文档没跟，视为改动未完成。
 6. 复杂问题排查需要日志时，按 `doc/conventions.md` 的类型标记写 `adm_api_debug.log`。
+7. **ADMX 是单独实例，原生 GUI 前端（`desktop/`，ADMX/viva）已弃用**：
+   - **ADMX 是单独实例**：桌面端只此一种交付形态，独立实例、独立运行，不与任何其他形态共用进程或数据，不存在与主线冲突的多桌面实例问题。
+   - **服务端与前端已合并**：后端与前端统一在 Tauri 主线 `src/` + `src-tauri/` 单包交付，不再有分开维护的前后端。
+   - **前端 UI 采用网页 HTML（website 版本）**：桌面端界面即 `website/` 的网页 HTML 版本，由 Tauri 承载加载，是唯一 UI 来源。
+   - `desktop/` 原生 GUI 前端**弃用**：不新增功能、不做兼容性修复、不改构建/发布链路（CI 与脚本本来也未引用）；除非用户明确要求，不要再动 `desktop/`。
+   - **编译/开发/打包只认 `src/` + `src-tauri/` 与 `pnpm tauri *`**；`desktop/` 的 `go build`、
+     viva `dev` / `package`、无头自检等原生链路一律不得再用于交付。ADMX 0.9.1 仅为历史安装实例，不再迭代。
+   - `desktop/internal/server`（admAgent 内嵌还原）随之冻结：它是已验证的实验成果与参考资料，不是交付物；
+     「服务端能力以内嵌方式提供」的需求以此文档留档，后续如重启需用户显式要求。
 
 ## 文档索引
 
@@ -43,8 +55,9 @@
 | [`doc/build-and-release.md`](doc/build-and-release.md) | CI、构建与发布、内置 admAgent 分发、Linux 打包/更新链路 |
 | [`doc/conventions.md`](doc/conventions.md) | 工作边界、工作目录功能归属、代码↔文档同步映射表（改动收尾必查）、调试日志格式与标记 |
 | [`doc/server-api.md`](doc/server-api.md) | admAgent HTTP API（服务端权威文档） |
+| [`doc/adm-server-embedded.md`](doc/adm-server-embedded.md) | **已冻结**：原生 desktop/internal/server 内嵌还原成果；服务端能力留档参考，非交付物 |
+| [`doc/admx-fork-rebrand.md`](doc/admx-fork-rebrand.md) | **现行 Tauri/ADMX 主线**：应用名/标识符/图标/底栏导航/自升级与原版 ADM 的差异、Git Bash 打包坑 |
 | [`doc/admAgent-eval-harness-plan.md`](doc/admAgent-eval-harness-plan.md) | agent 行为 eval：`admAgent eval` + `scripts/eval.{ps1,sh}`、任务/判分器定义、基线判定 |
-| [`doc/admx-fork-rebrand.md`](doc/admx-fork-rebrand.md) | ADMX 分支品牌化改造：应用名/标识符/图标/底栏导航/自升级与原版 ADM 的差异、Git Bash 打包坑 |
 | `doc/llamacpp.txt` / `doc/llamacpp-macos.txt` | llama-server CLI 启动参数 |
 | `doc/model_list.json` | 模型清单 |
 
@@ -62,7 +75,8 @@
 
 - **项目结构**：
   - `admAgent/` — Go TUI（Bubbletea/lipgloss/ultraviolet）+ 共享后端服务器（Go），两个前端共用此 server
-  - `src/` + `src-tauri/` — Tauri 桌面端（vanilla JS 前端 + Rust 后端）
+  - `src/` + `src-tauri/` — Tauri 桌面端（vanilla JS 前端 + Rust 后端）——**唯一交付目标**
+  - `desktop/` — 原生 GUI（ADMX/viva）**已弃用冻结**（见硬规则 7）；保留代码与文档作参考，未进 CI/发布链路
+  - `website/` — 营销官网落地页（非桌面 UI）
   - `adm-binaries/` — 二进制仓库（ADM 与 admAgent 共用；本地 clone 由编译产物直写，`pnpm agent:push` 强制覆盖远端，CI 自动 checkout 到同名目录）
-  - `website/` — 营销网站
   - `scripts/` — 工具脚本

@@ -89,3 +89,27 @@ rustc 各嵌了一份 manifest），实测不影响启动，可忽略。上游 C
 Agent 运行中点其它菜单被 `navigateTo` 的 agentBusy 拦截正确弹提示；空闲后进设置页，
 头部无「返回」按钮；卸载注册表项为 `HKCU\...\Uninstall\ADMX`（`DisplayName=ADMX`），
 与原版 ADM（`%LOCALAPPDATA%\ADM`、`adm.exe`）完全共存不冲突。
+
+## 端到端验证记录（2026-11-25，ADMX 0.8.3 x64 NSIS 重打包覆盖安装）
+
+源码相对 2026-11-19 的 0.8.3 无改动（`git status` 仅文档变更），仍走上面的 GNU 配方
+（本机无 MSVC `link.exe`）：`pnpm tauri build --target x86_64-pc-windows-gnu --bundles nsis`，
+产物 `src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/ADMX_0.8.3_x64-setup.exe`。
+PowerShell 下静默覆盖安装直接 `Start-Process <setup> /S -Wait` 即可（cmd //c 包装只在 Git Bash 需要）。
+
+- **sidecar 修复**：安装前 `%LOCALAPPDATA%\ADMX` 的 `admAgent.exe` 已被此前的 0.9.x 原生实验归档
+  （只剩 `admAgent.exe.sidecar-archived-0.9.0.bak`，等于 Agent 链路是断的）；重装后 `admAgent.exe`
+  恢复，哈希与 `src-tauri/binaries/admAgent-x86_64-pc-windows-gnu.exe` 一致。
+- **安装件与构建产物的 3 字节差异属正常**：安装后的 `ADMX.exe` 与
+  `target/.../release/ADMX.exe` 只差 `BUNDLE_TYPE_VAR_NS` / `BUNDLE_TYPE_VAR_UNK`
+  （tauri-bundler 的 bundle 类型补丁，安装包版写 NS）。源码未变时构建确定性复现，
+  哈希与 2026-11-19 的安装件逐字节相同，不要因为哈希不一致就判定“没打进去”。
+- UI 核对（UIA）：窗口标题 `ADMX`；底栏 设置 / Agent / 云端模型 / 技能管理；自动加载
+  `config.json` 的默认工作区；8 个 skill 全部「已加载」；状态栏 Token / 工具调用 / 交互轮次正常。
+- Agent 端到端：UIA 向输入框写入一条短消息并回车，`%LOCALAPPDATA%\admAgent\cache\admAgent.log`
+  记录 `Loop step response ... finish_reason=stop`，UI 收到模型回复；`admAgent-panic.log` 仅新增
+  `process start` 行，无 panic 栈。
+- **坑（验证常驻进程时）**：从 agent 的 shell 工具里 `Start-Process` 拉起的 GUI 进程会随该命令结束
+  被进程树回收而退出（用一个 `ping -n 40` 对照即可复证），会误判成“应用启动即退出”。
+  验证要用 `Invoke-CimMethod -ClassName Win32_Process -MethodName Create` 这类分离启动方式。
+  另外本应用挂了 `tauri_plugin_single_instance`，第二个实例只会聚焦第一个然后退出，验证时不要重复拉起。
