@@ -56,7 +56,9 @@
 | [`doc/conventions.md`](doc/conventions.md) | 工作边界、工作目录功能归属、代码↔文档同步映射表（改动收尾必查）、调试日志格式与标记 |
 | [`doc/server-api.md`](doc/server-api.md) | admAgent HTTP API（服务端权威文档） |
 | [`doc/adm-server-embedded.md`](doc/adm-server-embedded.md) | **已冻结**：原生 desktop/internal/server 内嵌还原成果；服务端能力留档参考，非交付物 |
+| [doc/adm-server-embedded-parity.md](doc/adm-server-embedded-parity.md) | **进行中**：内嵌服务端补成完整实现（排除 llama.cpp）；差分基座 scripts/parity/capture-parity.ps1（含 MCP 夹具）、与原版对拍（Stage 0–7 已全部交付，61 步 0 差异；后续无预设计划，新差距另开阶段） |
 | [`doc/admx-fork-rebrand.md`](doc/admx-fork-rebrand.md) | **现行 Tauri/ADMX 主线**：应用名/标识符/图标/底栏导航/自升级与原版 ADM 的差异、Git Bash 打包坑 |
+| [`doc/admx-server-baseline.json`](doc/admx-server-baseline.json) | 服务端同步基准快照：由 `scripts/server-baseline.ps1` 生成，记录交付 sidecar（包/哈希/模块伪版本）、安装实例、内嵌还原源码树哈希与差分口径，服务端更新后重跑逐字段 diff |
 | [`doc/admAgent-eval-harness-plan.md`](doc/admAgent-eval-harness-plan.md) | agent 行为 eval：`admAgent eval` + `scripts/eval.{ps1,sh}`、任务/判分器定义、基线判定 |
 | `doc/llamacpp.txt` / `doc/llamacpp-macos.txt` | llama-server CLI 启动参数 |
 | `doc/model_list.json` | 模型清单 |

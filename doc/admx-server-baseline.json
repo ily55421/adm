@@ -1,0 +1,54 @@
+{
+  "capturedAt": "2026-11-26T13:01:27+08:00",
+  "app": {
+    "productName": "ADMX",
+    "version": "0.8.4",
+    "identifier": "com.admx.admapp",
+    "repo": "D:\\code\\adm",
+    "gitHead": "c013cc72faaf258067b7d5f56f9f702a4eb1585f",
+    "gitHeadInfo": "2026-11-26 09:34:12 +0800 feat(agent): 完善桌面端工具接口与每轮统计展示",
+    "gitDirty": [
+      " M AGENTS.md",
+      "?? .knowstack/",
+      "?? admAgent.exe",
+      "?? desktop/",
+      "?? doc/adm-server-embedded-parity.md",
+      "?? scripts/parity/",
+      "?? scripts/server-baseline.ps1"
+    ]
+  },
+  "sidecar": {
+    "archive": "adm-binaries/admAgent_0.4.7_Windows_x86_64.zip",
+    "archiveBytes": 19139000,
+    "archiveSha256": "077C3596DEB828EEFB782E7C7C6DDE44C03C7C0EC63272049FEB594C348841A8",
+    "binaryPath": "src-tauri/binaries/admAgent-x86_64-pc-windows-gnu.exe",
+    "binaryBytes": 57406976,
+    "binarySha256": "FBFC23111941D15A5BC50FE3B66062AE42D9247E2E2A6A4CE2B70D27747D83B4",
+    "goVersion": "go1.26.4",
+    "module": "github.com/admAgent/admAgent",
+    "moduleVersion": "v0.4.8-0.20261123042035-0a9d8a6c6be1+dirty"
+  },
+  "installed": {
+    "dir": "C:\\Users\\dds\\AppData\\Local\\ADMX",
+    "productVersion": "0.8.4",
+    "exeBytes": 43342276,
+    "exeSha256": "CB8251B83277C9C4AB21119B767528E2977A39AAEDF70591BFEAD12AA012EB40",
+    "sidecarSha256": "FBFC23111941D15A5BC50FE3B66062AE42D9247E2E2A6A4CE2B70D27747D83B4",
+    "sidecarMatchesPackagedSource": true
+  },
+  "embeddedServer": {
+    "note": "冻结资料性实现，不走进交付链路；仅作为内嵌还原服务的源码基准",
+    "sourceDir": "desktop/internal/server",
+    "fileCount": 33,
+    "treeSha256": "638a8210e1436e1cec5239ff653a3bbf2dbaeb40e81472add6473b07ca86e635",
+    "newestFile": "desktop/internal/server/vision_test.go",
+    "newestModTime": "2026-11-26T12:50:55+08:00"
+  },
+  "parityBaseline": {
+    "harnessScript": "scripts/parity/capture-parity.ps1",
+    "harnessSha256": "66C8DD8E6781D167E0A6CEB2013DAA6A67BCD81E1A998E81B1983AB3D4286A8A",
+    "testSha256": "19F04AB52AAC41E467B423A20A8B471E83B66E8E06540759B1FB90AE0E3802DD",
+    "documentedSteps": 61,
+    "documentedResult": "differences=0, order-only=4, whitelisted=2 (Stage 0-7 全部交付时)"
+  }
+}

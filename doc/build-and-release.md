@@ -17,6 +17,7 @@
 - CI：`.github/workflows/build.yml` — 标签触发（`v*`），构建前从 `adm-binaries` 仓库检出内置 admAgent 二进制到 `adm-binaries/`。三个平台：Windows x64（NSIS，自签名）、macOS aarch64（DMG，自签名）、Linux x86_64（`ubuntu-22.04` + deb/AppImage；用 22.04 是因为 AppImage 的 linuxdeploy 需要较老 glibc，构建前 apt 安装 webkit2gtk-4.1 等系统依赖）。
 - 内置 admAgent 按平台选包（`scripts/prepare-agent-binary.mjs` 的 `platformSpec`）：Windows `_Windows_x86_64.zip`、macOS `_Darwin_arm64.tar.gz`、Linux `_Linux_x86_64.tar.gz`（仅 x86_64），新增平台需同时加匹配规则与 CI matrix。
 - 更新内置二进制：编译 admAgent（压缩包自动写入 `adm-binaries/`）→ `pnpm agent:push` 强制覆盖远端（CI 下次构建即用）。
+- 换完内置二进制后同步刷新服务端基准：`pwsh -File scripts/server-baseline.ps1 -OutFile doc/admx-server-baseline.json`，再与上一版 JSON 逐字段 diff（`sidecar.*` 变 = 交付服务端换代，`embeddedServer.treeSha256` 变 = 冻结还原实现有改动）；字段含义与判定口径见 [admx-fork-rebrand.md](admx-fork-rebrand.md) 的「服务端同步基准怎么记、怎么比」。
 - **发布前手动跑一次 agent 行为 eval**：`admAgent/scripts/eval.sh`（Windows `admAgent\scripts\eval.ps1`），退出码 `0` 通过 / `1` 回归（需查 `out/eval/summary.md` 的翻转表再决定是否发） / `2` 跳过（无云端模型）。**eval 不接入构建链路**，`build.ps1` / `build.sh` 不会自动调用它，漏跑等于没有门禁。规则见 [admAgent-eval-harness-plan.md](admAgent-eval-harness-plan.md)。
 - 发布：`pnpm tauri:build:<平台>` 然后 `pnpm sign:<平台>`。
 - 图标：ADMX 分支用 `pnpm tauri icon src-tauri/icons/source.svg` 从矢量源生成全套（ico/icns/PNG/Square*Logo）；上游遗留的 `python scripts/generate-icons.py`（PIL 从 source.png 缩放）保留但不再使用，见 [admx-fork-rebrand.md](admx-fork-rebrand.md)。

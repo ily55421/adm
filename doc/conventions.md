@@ -26,6 +26,7 @@
 | Agent 设置项与开关写入链路（`settings.rs` / `agent.rs` 的 `sync_*`、`settings_dialog.js`、`cloud_models.js`、`memory.js`、模型下拉） | [agent-settings.md](agent-settings.md) |
 | admAgent 服务端行为与前后端契约（loop / 压缩 / 事实块 / 归档编号 / 决策模式 / 代理 / 配置词表 / 新增 part 类型） | [admAgent-server.md](admAgent-server.md) |
 | CI、打包、sidecar 分发与更新链路（`build.yml`、`prepare-agent-binary.mjs`、`tauri.conf.json` 打包项） | [build-and-release.md](build-and-release.md) |
+| 服务端交付基准（`adm-binaries` 的 admAgent 包、`scripts/server-baseline.ps1`、`doc/admx-server-baseline.json`） | [admx-fork-rebrand.md](admx-fork-rebrand.md) 「服务端同步基准怎么记、怎么比」 + [build-and-release.md](build-and-release.md) |
 | 调试日志标记、工作边界与流程约定 | 本文件 |
 | HTTP API 端点 / 字段（`admAgent/internal/server`、`internal/proto`） | [server-api.md](server-api.md) |
 | 内嵌 server（`desktop/internal/server/**`、`desktop/internal/adm/embedded.go`、boot 决策）——**已弃用冻结** | [adm-server-embedded.md](adm-server-embedded.md) |

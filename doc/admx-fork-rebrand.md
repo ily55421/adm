@@ -142,3 +142,33 @@ PowerShell 下静默覆盖安装直接 `Start-Process <setup> /S -Wait` 即可�
 - **构建与覆盖**：GNU 配方生产构建退出码 0，生成 `src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/ADMX_0.8.4_x64-setup.exe`（23,831,401 字节）。覆盖前备份旧主程序和配置到当前 PI scratch，目标实例当时已退出；静默安装退出码 0。新主程序 43,342,276 字节、产品版本 0.8.4，与构建产物仅差已核实的 3 字节 NSIS bundle 标记；sidecar 与打包源哈希一致；`config.json` / `admAgent.json` 安装前后及对话验证后哈希均一致。
 - **安装版真实对话**：1440×800 WebView 通过 11 项检查，原有 4 轮完整保留并新增 1 轮，真实模型回复「统计验证通过」，本轮记录为 09:21:42 → 09:21:50、8 秒、文本估算 `~68`、工具调用 0、模型交互 1；结束后恢复就绪，折叠统计可见，输入可编辑且无横向溢出。截图经原生 `Page.captureScreenshot` 保存并核对；再通过真实消息 API 读取该会话，确认统计可从落盘历史还原，未改变当前会话选择。
 - **重启收尾状态**：安装版验证后用户另开新会话并开始运行；最终重启门禁读到 `busy:true`、草稿长度 0，因此没有关闭正在工作的应用。当前实例仍是仅进程级环境启用的临时 loopback CDP（127.0.0.1:9224）；未改全局环境或注册表。普通模式重启与端口关闭复验尚未执行，须等当前任务空闲后完成，不能把此前章节的普通启动结果当成本轮结果。
+
+## 最新包覆盖更新与服务端同步基准（2026-11-26，ADMX 0.8.4 第三次覆盖）
+
+- **源码范围**：`git HEAD` 仍是 `c013cc7`（`feat(agent): 完善桌面端工具接口与每轮统计展示`）；工作树只有文档 / 冻结资料类未提交项（`AGENTS.md`、`doc/adm-server-embedded-parity.md`、`desktop/`、`scripts/parity/`、`.knowstack/`、根目录遗留 `admAgent.exe`），`src/` 与 `src-tauri/src/` 相对 09:19 那次构建无改动。
+- **服务端没有可重编的源码**：本仓库已无 `admAgent/` 目录，交付服务端只能是 `adm-binaries/` 里的 `admAgent_0.4.7_Windows_x86_64.zip`（2026-11-25 23:42 写入）；因此本次没有重编 sidecar，`prepare-agent-binary.mjs` 判定二进制已是最新并跳过解压。
+- **类型检查与构建**：`pnpm typecheck` 通过；GNU 配方 `pnpm tauri build --target x86_64-pc-windows-gnu --bundles nsis` 退出码 0（`Finished release profile in 1m 05s`，仅既有 `.rsrc merge failure: multiple non-default manifests` 警告）。产物 `src-tauri/target/x86_64-pc-windows-gnu/release/ADMX.exe` 43,342,276 字节（SHA256 `CD1CA38A…`）、`bundle/nsis/ADMX_0.8.4_x64-setup.exe` 23,836,636 字节（SHA256 `9B68402A…`）。主程序与 09:19 那次字节数/哈希一致（源码未变的确定性复现）；安装器比上次大 5,235 字节，差异在 NSIS 打包侧（主程序逐字节相同），不影响安装结果。
+- **覆盖安装**：安装前确认实例空闲（UIA 读到「就绪」且无「停止」按钮），把 `config.json`、`admAgent.json`、旧 `ADMX.exe` 与旧 `admAgent.exe` 备份到当次 PI scratch 的 `before-update/`，按 `ExecutablePath` 精确匹配后 `taskkill /T /F` 结束 `%LOCALAPPDATA%\ADMX` 的 ADMX + sidecar 进程树，`Start-Process <setup> /S -Wait` 退出码 0。安装后 `ADMX.exe` 43,342,276 字节、产品版本 0.8.4，与构建产物只差 3 字节（offset 23919723–23919725，即已核实的 NSIS `BUNDLE_TYPE_*` 标记）；`admAgent.exe` 与 `src-tauri/binaries/admAgent-x86_64-pc-windows-gnu.exe` 哈希一致（`FBFC2311…`）；`config.json`（`48C29CAF…`）与 `admAgent.json`（`F6853FCE…`）安装前后哈希均未变。
+- **安装版验证**：用 `Invoke-CimMethod Win32_Process Create` 分离启动（`Start-Process` 拉起的 GUI 会被进程树回收）；窗口 `ADMX`（`Tauri Window`）UIA 读到「就绪」、底栏 设置 / Agent / 云端模型 / 技能管理、工作区 `%LOCALAPPDATA%\ADMX`、历史统计仍为交互轮次 8 / 工具调用 7（与安装前一致，会话数据未丢），输入框 `输入消息... (Enter 发送, Shift+Enter 换行)` enabled 且可写；`admAgent.exe` 随主程序自动拉起；9224 端口无监听（本次未开临时 CDP）。
+
+### 服务端同步基准怎么记、怎么比
+
+交付服务端只有在 `adm-binaries` 里才能换代，所以基准落成「可重跑的字段快照」，不写在散文里：
+
+```powershell
+pwsh -File scripts/server-baseline.ps1 -OutFile doc/admx-server-baseline.json
+```
+
+`doc/admx-server-baseline.json` 记录四组字段：
+
+| 字段组 | 内容 | 变化含义 |
+| --- | --- | --- |
+| `app` | productName / version / identifier / git HEAD 与脏文件清单 | 桌面端换代 |
+| `sidecar` | `adm-binaries` 包名·字节数·SHA256，打包二进制字节数·SHA256，`go version -m` 的模块路径 / 伪版本 / go 版本 | 交付服务端换代 |
+| `installed` | 安装实例 exe 字节数·SHA256·产品版本，sidecar SHA256 及「是否等于打包源」 | 覆盖安装是否真的落地 |
+| `embeddedServer` / `parityBaseline` | `desktop/internal/server` 文件数与内容树 SHA256、`capture-parity.ps1` 与 `parity_test.go` 的 SHA256、文档记录的 61 步 0 差异口径 | 冻结还原实现或对拍口径变了 |
+
+对比方式：服务端更新（换 `adm-binaries` 包，或内嵌还原实现继续演进）后重跑同一脚本到 `$env:PI_SCRATCH_DIR`，
+与仓库里的 JSON 逐字段 diff。脚本的目录树哈希按「相对路径:文件 SHA256」排序拼接后再取 SHA256，不依赖 mtime。
+包名 `0.4.7` 与模块伪版本 `v0.4.8-0.20261123042035-0a9d8a6c6be1+dirty` 必须分开看：前者是打包脚本选包的版本号，
+后者才是二进制真实来源（`go version -m`）。
