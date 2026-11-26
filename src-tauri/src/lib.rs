@@ -238,6 +238,7 @@ pub fn run() {
             agent::set_agent_workdir,
             agent::pick_workdir_folder,
             agent::get_workdirs,
+            agent::open_workdir_folder,
             agent::add_workdir,
             agent::remove_workdir,
             agent::set_default_workdir,

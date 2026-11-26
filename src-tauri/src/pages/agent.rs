@@ -2144,6 +2144,23 @@ pub async fn get_workdirs(app: tauri::AppHandle) -> Result<Vec<WorkDirEntry>, Ap
     Ok(load_workdirs(&app))
 }
 
+/// 在系统文件管理器中打开已登记的工作目录，不触发工作区切换或 Agent 初始化。
+#[tauri::command]
+pub async fn open_workdir_folder(app: tauri::AppHandle, path: String) -> Result<(), AppError> {
+    use tauri_plugin_opener::OpenerExt;
+    if !load_workdirs(&app).iter().any(|entry| entry.path == path) {
+        return Err("工作目录未登记，请刷新目录列表后重试".into());
+    }
+    let dir = std::path::Path::new(&path);
+    if !dir.is_absolute() || !dir.is_dir() {
+        return Err("工作目录不存在或不是文件夹".into());
+    }
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| format!("打开工作目录失败: {}", e))?;
+    Ok(())
+}
+
 /// 添加工作目录（去重），若列表为空则设为默认
 #[tauri::command]
 pub async fn add_workdir(app: tauri::AppHandle, path: String) -> Result<Vec<WorkDirEntry>, AppError> {
@@ -3158,8 +3175,43 @@ pub async fn agent_subscribe_events(
 }
 
 
+/// 退出时回收已注册的 Agent 客户端、停止 SSE 转发并终止本进程拉起的 sidecar。
 pub fn kill_agent_session(state: &AppState) {
-    // 停止所有 workspace 的 SSE 任务
+    // 应用真正退出时回收本进程注册的 admAgent 客户端（释放 SSE 挂载和 client 绑定）。
+    // 不放在前端 view unmount：路由切换到设置/技能页不等于应用退出。
+    let mut client_ids = Vec::new();
+    if let Ok(sessions) = state.agent_sessions.lock() {
+        for sess in sessions.values() {
+            if !sess.client_id.is_empty() && !client_ids.contains(&sess.client_id) {
+                client_ids.push(sess.client_id.clone());
+            }
+        }
+    }
+    if !client_ids.is_empty() {
+        let _ = std::thread::spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(runtime) => runtime,
+                Err(e) => { eprintln!("[admAgent] 无法创建退出清理 runtime，跳过 clients 回收: {e}"); return; }
+            };
+            runtime.block_on(async move {
+                for client_id in client_ids {
+                    let client = match build_client(&AgentTransport::default_host(), Duration::from_secs(2)) {
+                        Ok(client) => client,
+                        Err(e) => { eprintln!("[admAgent] 创建 clients 回收客户端失败: {e}"); break; }
+                    };
+                    let path = format!("/v1/clients/{}", client_id);
+                    match tokio::time::timeout(Duration::from_secs(2), agent_http::send(&client, "DELETE", &path, None)).await {
+                        Ok(Ok((status, _))) if (200..300).contains(&status) => {}
+                        Ok(Ok((status, _))) => eprintln!("[admAgent] 回收 client 返回 HTTP {status}: {client_id}"),
+                        Ok(Err(e)) => eprintln!("[admAgent] 回收 client 请求失败: {e}"),
+                        Err(_) => eprintln!("[admAgent] 回收 client 请求超时: {client_id}"),
+                    }
+                }
+            });
+        }).join();
+    }
+
+    // 回收客户端后停止所有 workspace 的 SSE 任务
     if let Ok(mut sessions) = state.agent_sessions.lock() {
         for (_, sess) in sessions.iter() {
             sess.sse_stop.store(true, Ordering::Relaxed);

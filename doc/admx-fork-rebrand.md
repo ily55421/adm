@@ -113,3 +113,32 @@ PowerShell 下静默覆盖安装直接 `Start-Process <setup> /S -Wait` 即可�
   被进程树回收而退出（用一个 `ping -n 40` 对照即可复证），会误判成“应用启动即退出”。
   验证要用 `Invoke-CimMethod -ClassName Win32_Process -MethodName Create` 这类分离启动方式。
   另外本应用挂了 `tauri_plugin_single_instance`，第二个实例只会聚焦第一个然后退出，验证时不要重复拉起。
+
+## 服务端基线与桌面端接口对齐（2026-11-26）
+
+- **ADMX 应用版本基线**：`src-tauri/tauri.conf.json` 从 `0.8.3` 升至 `0.8.4`。
+- **Windows sidecar 包基线**：`adm-binaries` 远端 main 提供 `admAgent_0.4.7_Windows_x86_64.zip`；其中 `go version -m` 报告模块版本实际为 `v0.4.8-0.20261123042035-0a9d8a6c6be1+dirty`（go1.26.4），包名 `0.4.7` 与模块伪版本须区分记录。
+- `scripts/prepare-agent-binary.mjs` 将该二进制打入 `src-tauri/binaries/admAgent-x86_64-pc-windows-gnu.exe`。sidecar 包仍依赖 `adm-binaries` 仓库基线，不在本仓库提交二进制。
+- `src/views/agent/tools.js` 接入 MCP runtime、LSP stop/diagnostics/restart 与 managed-LSP catalog/doctor/install/fix/uninstall/jobs/cancel。install/fix 采用 server plan → 显示版本/来源/许可证 → 用户确认 → `confirm:true` 二次请求，不自动执行计划。
+- `src/views/agent/send.js` 接入 `!command` Bang shell 模式及 prompts queued/list 查询；普通消息不变，工作区 Agent 忙时拒绝 Bang shell 避免并发写冲突。
+- `src/views/agent/session_tools.js` 加入侧栏「会话」tab，展示当前会话已读文件、文件快照历史与工作区用户消息，并可从历史快照显式调用 `filetracker/read`。
+- `src-tauri/src/pages/agent.rs` 在应用真正退出的 `kill_agent_session` 路径回收其注册的 `/clients/{client_id}`；页面切换不触发客户端回收。
+- **端点基线核对**：0.4.7 自带 Swagger 2.0 `/v1/docs/doc.json` 覆盖旧基础 API，但不声明 `/v1/lsp/{catalog,doctor,install,fix,uninstall,jobs}`、`/v1/analytics/events`、`/v1/models`、`/v1/models/status` 这组新增路由；managed-LSP 请求结构用隔离 scratch server 做只读/计划阶段验证，未执行安装/卸载。
+- **明确不启用**：`/v1/analytics/events` 遥测暂不由 ADMX 调用（契约和隐私 payload 未公开）；`/v1/models*` 属 TUI/CLI 模型状态路由，ADMX 继续使用原生模型管理链路；hooks 是 admAgent 服务端内部机制（`builtin/admAgent-hooks` skill），没有 `/v1/hooks` HTTP endpoint。
+- **构建/安装验证状态**：已在后续前端样式优化轮完成类型检查、GNU 生产构建、NSIS 覆盖安装与安装后交互验证，详见下节；未单独运行 `cargo check`，Rust 编译由生产构建覆盖。
+
+## 工作区目录样式与渲染优化验证（2026-11-26，ADMX 0.8.4）
+
+- **改动范围**：Tauri 桌面端目录树增加右键「打开文件夹」，由 `open_workdir_folder` 校验已登记的绝对目录后调用系统文件管理器；侧栏优化间距、层级、操作占位与焦点/滚动保留，消息和输入区统一圆角及主题变量，Markdown 代码围栏与行内代码避免二次转换，并支持有序/嵌套列表、引用与未闭合的流式代码。
+- **编译**：`pnpm typecheck` 通过；GNU 工具链下 `pnpm tauri build --target x86_64-pc-windows-gnu --bundles nsis` 成功，生成 `src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/ADMX_0.8.4_x64-setup.exe`（23,830,717 字节）。仅见已有的 `.rsrc merge failure: multiple non-default manifests` 警告。
+- **浏览器验证**：临时验证页直接导入真实前端模块，19 项检查通过，覆盖菜单位置/关闭/键盘、路径传递、目录 DOM 与滚动/焦点保留、代码原文和缩进、未闭合围栏、列表/引用/表格、HTML 转义/链接协议、流式列表及拖拽保护；另核对中文带空格目录传参，未触发 workspace 创建。窄窗口预览无横向溢出。
+- **覆盖安装**：先确认安装实例就绪，备份旧主程序与配置，再 `/S` 静默覆盖 `%LOCALAPPDATA%\ADMX`；安装退出码 0，安装前后 `config.json` / `admAgent.json` 哈希一致。新主程序为 43,342,468 字节，与构建产物仅差 NSIS bundle 标记的 3 字节；sidecar 哈希与打包源一致。
+- **安装版验证**：1440×800 WebView 中 9 项检查通过（菜单、目录路径、展开状态、关闭、不切工作区/会话、未登记路径拒绝、就绪、输入可编辑、无横向溢出）；系统 `Shell.Application` 确认资源管理器实际打开所选目录。侧栏 272px；初始化完成；panic 日志末尾无新增异常栈。验证后以正常模式重新启动，未更改全局 WebView 调试配置。
+
+## 每轮统计栏与消息布局验证（2026-11-26，ADMX 0.8.4 再次覆盖）
+
+- **改动范围**：`round_metrics.js` 汇总本轮消息，`render.js` 在轮正文后增加发起、结束（记录）、耗时、Token（文本估算）、工具调用和模型交互六项；折叠仍保留统计，运行中每秒更新耗时，短回复不再强制占满 200px，长回复可在轮内滚动到统计栏。服务端不提供单轮 usage，Token 明确带 `~` 和估算口径提示；历史结束时间按最后一条保存回复的更新时间计算，不声称精确计费或运行结束时间。
+- **源码验证**：`pnpm typecheck` 与 `git diff --check` 通过；scratch 中 12 项纯统计边界检查通过，覆盖秒/毫秒/ISO、无效时间、跨分钟/小时、缺少回复、临时错误、图片数据不计文本、SSE 缓存失效及负耗时。真实模块浏览器验证 14 项通过，覆盖每轮/每项数量、正文后位置、折叠可见、估算提示、秒精度、运行计时、节点复用、选择保护、停止计时、长内容滚动与无横向溢出；另核对 720px 容器和浅色主题自动换行。
+- **构建与覆盖**：GNU 配方生产构建退出码 0，生成 `src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/ADMX_0.8.4_x64-setup.exe`（23,831,401 字节）。覆盖前备份旧主程序和配置到当前 PI scratch，目标实例当时已退出；静默安装退出码 0。新主程序 43,342,276 字节、产品版本 0.8.4，与构建产物仅差已核实的 3 字节 NSIS bundle 标记；sidecar 与打包源哈希一致；`config.json` / `admAgent.json` 安装前后及对话验证后哈希均一致。
+- **安装版真实对话**：1440×800 WebView 通过 11 项检查，原有 4 轮完整保留并新增 1 轮，真实模型回复「统计验证通过」，本轮记录为 09:21:42 → 09:21:50、8 秒、文本估算 `~68`、工具调用 0、模型交互 1；结束后恢复就绪，折叠统计可见，输入可编辑且无横向溢出。截图经原生 `Page.captureScreenshot` 保存并核对；再通过真实消息 API 读取该会话，确认统计可从落盘历史还原，未改变当前会话选择。
+- **重启收尾状态**：安装版验证后用户另开新会话并开始运行；最终重启门禁读到 `busy:true`、草稿长度 0，因此没有关闭正在工作的应用。当前实例仍是仅进程级环境启用的临时 loopback CDP（127.0.0.1:9224）；未改全局环境或注册表。普通模式重启与端口关闭复验尚未执行，须等当前任务空闲后完成，不能把此前章节的普通启动结果当成本轮结果。

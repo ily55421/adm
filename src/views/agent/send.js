@@ -49,6 +49,81 @@ function getModelReadiness() {
   }
   return null;
 }
+// ===== Bang 模式（shell 端点）=====
+// 用户输入以单个 `!` 开头（如 `!ls -la`、`!npm run build`）视为 Bang 命令：
+// 直接在工作区执行 shell，不走普通 Agent 发送——不发 /agent、不登记 run、不计运行统计。
+// 结果以 assistant 风格消息展示在对话区（命令 / 输出 / 退出码均可见）。
+async function runBangCommand(command) {
+  var workspaceId = S.serverInfo && S.serverInfo.workspace_id;
+  if (!workspaceId) {
+    showError(_t("缺少工作区信息，无法执行 Bang 命令"));
+    return { ok: false, reason: "no_workspace" };
+  }
+  var sessionId = S.currentConvId;
+  if (!sessionId) {
+    // 无当前会话：先尝试新建（与普通发送的无会话处理一致），仍失败则提示
+    try { await newConversation(); } catch (_) {}
+    sessionId = S.currentConvId;
+  }
+  if (!sessionId) {
+    showError(_t("请先创建或选择一个会话，再执行 Bang 命令"));
+    return { ok: false, reason: "no_session" };
+  }
+  try {
+    // POST .../sessions/{sid}/shell（doc/server-api.md §4.12）：响应 { output, exit_code }
+    var res = await api("POST", "/v1/workspaces/" + workspaceId + "/agent/sessions/" + sessionId + "/shell", {
+      session_id: sessionId,
+      command: command,
+      term_width: 80,
+    });
+    var output = (res && res.output) || "";
+    var exitCode = res ? res.exit_code : undefined;
+    var content = "$ " + command + "\n" + output;
+    if (exitCode !== undefined && exitCode !== null) content += "\n" + _t("退出码: ") + exitCode;
+    store.appendMessage(workspaceId, {
+      id: "bang-" + Date.now(),
+      role: "assistant",
+      content: content,
+      _sessionId: sessionId,
+    });
+    renderMessages();
+    return { ok: true, exit_code: exitCode, output: output };
+  } catch (e) {
+    reportError(e, { prefix: _t("Bang 命令执行失败: ") });
+    return { ok: false };
+  }
+}
+
+// 排队提示查询（prompts 端点，doc/server-api.md §4.7 / §4.8）：
+// 查 {queued:bool} 与排队提示列表 string[]，以提示区展示当前会话的排队条数。
+// 供发送成功登记排队后刷新提示，也可由状态栏/提示区按需调用。
+export async function loadQueuedPrompts() {
+  var workspaceId = S.serverInfo && S.serverInfo.workspace_id;
+  var sessionId = S.currentConvId;
+  if (!workspaceId || !sessionId) return null;
+  var base = "/v1/workspaces/" + workspaceId + "/agent/sessions/" + sessionId + "/prompts";
+  var result = { queued: false, prompts: [] };
+  try {
+    var q = await api("GET", base + "/queued");
+    result.queued = !!(q && q.queued);
+  } catch (e) {
+    reportError(e, { prefix: _t("查询排队状态失败: ") });
+    return null;
+  }
+  try {
+    var list = await api("GET", base + "/list");
+    result.prompts = Array.isArray(list) ? list : [];
+  } catch (e) {
+    reportError(e, { prefix: _t("查询排队列表失败: ") });
+    return null;
+  }
+  if (result.prompts.length > 0) {
+    showInfo(tV("当前会话有 {n} 条排队提示，将在本轮结束后自动执行", { n: result.prompts.length }));
+  } else {
+    showInfo(_t("当前会话没有排队提示"));
+  }
+  return result;
+}
 
 // 同目录多会话并行的并发上限：本地模型共享同一推理实例、云端共享额度，
 // 放开会导致互相拖慢与额度挤兑，故按工作区内「正在运行的会话数」设硬上限
@@ -192,6 +267,26 @@ async function sendText(overrideText, filesOverride, expectedTarget) {
   var input = /** @type {HTMLTextAreaElement} */ (document.getElementById("agent-input"));
   var text = (overrideText != null ? String(overrideText) : input.value).trim();
   if (!text && S.pendingFiles.length === 0) return;
+  // Bang 模式：输入以单个 `!` 开头（如 `!ls -la`、`!npm run build`）视为 Bang 命令，
+  // 走 shell 端点直接在工作区执行，不走普通 Agent 发送（不发 /agent、不登记 run、
+  // 不计运行统计）。`!!` 开头不算 Bang；`!` 后没有命令内容时提示用户补充命令。
+  var isBang = text.charAt(0) === "!" && text.charAt(1) !== "!";
+  if (isBang && text.length > 1) {
+    var bangCommand = text.substring(1).trim();
+    if (!bangCommand) {
+      showWarning(_t("Bang 命令不能为空"));
+      return { ok: false, reason: "empty_bang" };
+    }
+    if (store.isBusy(workspaceId)) {
+      showWarning(_t("Agent 正在运行，Bang 命令可能与文件修改冲突；请等待本轮结束后再执行"));
+      return { ok: false, reason: "workspace_busy" };
+    }
+    if (overrideText == null) {
+      input.value = "";
+      autoResize(input);
+    }
+    return runBangCommand(bangCommand);
+  }
 
   // 发送前模型可用性校验：本地模型必须已启动（否则服务端 local provider 指向
   // 127.0.0.1:1010 无可连服务，每轮对话都报连接失败）；云端模型必须已配置
@@ -311,7 +406,7 @@ async function sendText(overrideText, filesOverride, expectedTarget) {
     }
   }
   var tempId = "temp-user-" + Date.now();
-  store.appendMessage(workspaceId, { id: tempId, role: "user", content: promptText, _temp: true, _fold: foldIn || undefined, _sessionId: sessionId, _attachments: filesToSend.length > 0 ? filesToSend.map(function(f) { return f.name; }) : null });
+  store.appendMessage(workspaceId, { id: tempId, role: "user", content: promptText, created_at: Date.now() / 1000, _temp: true, _fold: foldIn || undefined, _sessionId: sessionId, _attachments: filesToSend.length > 0 ? filesToSend.map(function(f) { return f.name; }) : null });
   renderMessages();
   if (overrideText == null) {
     input.value = "";
@@ -372,6 +467,8 @@ async function sendText(overrideText, filesOverride, expectedTarget) {
     } else if (sameSessionRunning) {
       showInfo(_t("当前会话正在运行，本条消息已排队，将在本轮结束后自动执行"));
       renderConversationList();
+      // 刷新排队提示条数（prompts 端点：queued + list）
+      loadQueuedPrompts();
     }
     startSendSafetyTimer();
     updateContextUsage();

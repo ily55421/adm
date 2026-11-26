@@ -14,9 +14,10 @@ import { sendMessage, cancelCurrentRun, sendMessageWithFiles } from "./agent/sen
 import { setupSSEListener, cancelScheduledLoadTools, cancelRunCompleteFallback, cancelDiscardFallback } from "./agent/sse.js";
 import { syncModeToServer } from "./agent/permission.js";
 import { loadTools, activateToolsTab } from "./agent/tools.js";
+import { loadSessionTools } from "./agent/session_tools.js";
 import { switchModel, refreshServerProviders, resolveAgentModel, updateModelDropdown, updateModelBtn, refreshAgentInfo, setAddCloudModelHandler } from "./agent/model.js";
 import { enableAutoCompact, updateWorkspaceSelector, validateWorkDirs } from "./agent/workspace.js";
-import { addWorkDir } from "./agent/ws_tree.js";
+import { addWorkDir, closeWorkspaceMenu } from "./agent/ws_tree.js";
 import { showSettings, hideSettings, updateSettingsUI, saveSettings, renderVisionModelSelect, BUILTIN_VISION_KEY } from "./agent/settings_dialog.js";
 import { addPendingFiles, parseUriListPaths, addPastedPaths, looksLikeFilePath } from "./agent/attach.js";
 import { bindSkillSelectorEvents, initSkillSelector, clearAttachedSkillsAfterSend } from "./agent/skill_selector.js";
@@ -196,15 +197,39 @@ async function _doInit(seq) {
   if (seq !== S.initSeq) return;
 
   // ===== Phase F: UI 收尾 =====
-  // 工具 tab 切换（Skill / LSP / MCP）
+  // 每次挂载从默认 Skill tab 开始，避免上次页面离开时的 session tab 状态与新 DOM 不一致。
+  S.toolsTab = "skill";
+  document.getElementById("agent-tools-list").style.display = "";
+  document.getElementById("agent-session-tools").style.display = "none";
+  var onSessionToolsConversationChanged = function() {
+    if (S.toolsTab === "session") loadSessionTools();
+  };
+  document.addEventListener("agent-conversation-changed", onSessionToolsConversationChanged);
+  S.unlisteners.push(function() {
+    document.removeEventListener("agent-conversation-changed", onSessionToolsConversationChanged);
+  });
   var toolsTabs = document.getElementById("agent-tools-tabs");
   if (toolsTabs) {
     toolsTabs.addEventListener("click", function(e) {
       var target = /** @type {HTMLElement} */ (e.target);
       var tab = target.closest ? target.closest(".tools-tab") : null;
       if (!tab) return;
-      var mode = /** @type {"skill" | "lsp" | "mcp"} */ (tab.getAttribute("data-tab"));
+      var mode = tab.getAttribute("data-tab");
       if (!mode || mode === S.toolsTab) return;
+      if (mode === "session") {
+        S.toolsTab = "session";
+        toolsTabs.querySelectorAll(".tools-tab").forEach(function(t) {
+          t.classList.toggle("active", t.getAttribute("data-tab") === "session");
+        });
+        document.getElementById("agent-tools-list").style.display = "none";
+        var sessionPanel = document.getElementById("agent-session-tools");
+        sessionPanel.style.display = "block";
+        loadSessionTools();
+        return;
+      }
+      var sessionPanel = document.getElementById("agent-session-tools");
+      if (sessionPanel) sessionPanel.style.display = "none";
+      document.getElementById("agent-tools-list").style.display = "";
       activateToolsTab(mode);
     });
   }
@@ -985,6 +1010,7 @@ export default {
     }
     stopStallWatchdog();
     resetSelectGuard();
+    closeWorkspaceMenu();
     document.documentElement.style.removeProperty("--round-max-h");
     console.log("[agent] unmount() isSending=" + S.isSending + " activeRun=" + JSON.stringify(S.activeRun));
     // 使在途 init() 失效，防止切走后旧 init 继续执行、或与下次 mount 的新 init 并发互踩

@@ -26,6 +26,7 @@
 - **共享状态** `window.__adm_state`（systemInfo / runningModelId / modelList 等）跨视图共享，切换不丢。
 - 视图 `mount` 时 `listen()` 保存 unlisten 句柄，`unmount` 时统一调用以防事件重复绑定（泄漏）。
 - **Agent 页面**（`src/views/agent.js`）为独立 ESM 视图，由路由 `#/agent` 加载，不再使用 iframe / PTY 终端。
+- Agent 工作区目录右键菜单由 `ws_tree.js` 按需挂载到 `.agent-root`，通过注册的 `open_workdir_folder` 命令打开系统文件管理器；视图 `unmount` 调用 `closeWorkspaceMenu()` 回收菜单与临时全局监听。消息 Markdown 样式使用 `.agent-root .agent-markdown` 隔离，不影响壳层与其它视图。
 - 子页面 → 父窗口导航：使用 `location.hash = "#/agent"` 等 hash 路由。
 
 ## Agent server 与多 workspace 并发

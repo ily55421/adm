@@ -7,6 +7,7 @@ import { scheduleMessageOutline } from "./session.js";
 import { undoToRound, syncRoundUndoState } from "./undo.js";
 import { log } from "./log.js";
 import { appendDecisionCard, appendDecisionResult, buildDecisionRawBlock, decisionFromPart, decisionReplayFromText, getActiveDecisionMode, hasDecisionSyntax, parseDecisionResult, stripDecisionControlText, stripDecisionRequestText } from "./decision_mode.js";
+import { collectRoundMetrics, formatRoundTime, formatRoundDuration } from "./round_metrics.js";
 
 // 工具卡状态后缀：结果出错时不再显示「已完成」——否则摘要写着完成、正文却是红色报错。
 function toolStatusSuffix(finished, failed) {
@@ -73,17 +74,15 @@ export function resetSelectGuard() {
   selectGuardActive = false;
   selectGuardPending = false;
   if (selectGuardTimer) { clearTimeout(selectGuardTimer); selectGuardTimer = 0; }
+  stopRoundMetricsTicker();
 }
 
 // ===== 流式文本 Markdown 更新节流 =====
-// 流式正文每个 delta 都在增长，全文重跑 markdown 正则（utils.renderMarkdown 约 10 轮
-// 正则）是单条消息的主要 CPU 开销，长文本下整体呈 O(n²)。策略：
-//   1) 无 Markdown 标记的纯文本走 textContent 快路径（.msg 已启用 pre-wrap，换行语义一致）；
-//   2) 含标记的文本合并到 ≥80ms 的窗口渲染，窗口结束用最新全文兜底（保证终态不丢）。
+// 流式正文合并到 ≥80ms 的窗口渲染；不含 Markdown 的文本走 textContent 快路径。
+// 判定需覆盖 utils.js 支持的块语法，否则列表/引用会在下一次 delta 退回纯文本。
 var MD_MIN_INTERVAL_MS = 80;
-// 纯文本判定：renderMarkdown 只对 ` * # [ ] | 及行首 "- " 做转换
-var MD_PLAIN_RE = /^[^`*#\[\]|]*$/;
-var MD_LIST_LINE_RE = /^[ \t]*- /m;
+var MD_PLAIN_RE = /^[^`*#\[\]|~]*$/;
+var MD_LIST_LINE_RE = /^[ \t]*(?:[-+]\s|\d+[.)]\s|>|_{3,}\s*$)/m;
 function isPlainMarkdownText(text) {
   return MD_PLAIN_RE.test(text) && !MD_LIST_LINE_RE.test(text);
 }
@@ -106,6 +105,12 @@ function scheduleMarkdownText(pe, text) {
   }
 }
 function flushMarkdownText(pe, st) {
+  if (!pe.isConnected) { st.pending = null; return; }
+  // 节流计时器也遵守拖拽保护，避免它绕过 renderMessages 直接破坏选区。
+  if (selectGuardActive) {
+    st.timer = setTimeout(function() { st.timer = 0; flushMarkdownText(pe, st); }, MD_MIN_INTERVAL_MS);
+    return;
+  }
   var text = st.pending;
   st.pending = null;
   if (text === null) return;
@@ -224,6 +229,7 @@ export function renderMessages() {
       if (indicator) area.appendChild(indicator); // innerHTML 会清掉旧指示器，运行中需保留
     }
     syncWorkingIndicator(area, null);
+    stopRoundMetricsTicker();
     updateScrollBottomBtn();
     // 消息清空（如切到新会话尚未加载）→ 调度刷新右侧大纲为空态
     scheduleMessageOutline();
@@ -536,6 +542,29 @@ function buildRoundNode(round) {
   div.addEventListener("scroll", function() { onAreaScroll(div); }, { passive: true });
   div.appendChild(header);
   div.appendChild(body);
+  if (round.firstUserMsg) {
+    var stats = document.createElement("div");
+    stats.className = "msg-round-stats";
+    stats.setAttribute("aria-label", _t("本轮统计"));
+    [
+      ["start", "发起"], ["end", "结束（记录）"], ["duration", "耗时"],
+      ["tokens", "Token（文本估算）"], ["tools", "工具调用"], ["requests", "模型交互"],
+    ].forEach(function(entry) {
+      var item = document.createElement("div");
+      item.className = "msg-round-metric";
+      item.setAttribute("data-metric", entry[0]);
+      var label = document.createElement("span");
+      label.className = "msg-round-metric-label";
+      label.textContent = _t(entry[1]);
+      var value = document.createElement("span");
+      value.className = "msg-round-metric-value";
+      item.appendChild(label);
+      item.appendChild(value);
+      stats.appendChild(item);
+    });
+    // 放在 body 后面，折叠消息时仍可查看该轮指标。
+    div.appendChild(stats);
+  }
   return div;
 }
 
@@ -660,6 +689,58 @@ var DECISION_PENDING_KEY = "\u0000adm-decision-pending";
 var lastOpenRoundKey = "";
 var lastOpenRoundConv = "";
 
+// 实时计时只更新末轮统计节点，不重绘消息、不触发自动滚底。
+var roundMetricsTimer = 0;
+var roundMetricsTarget = null;
+function stopRoundMetricsTicker() {
+  if (roundMetricsTimer) clearTimeout(roundMetricsTimer);
+  roundMetricsTimer = 0;
+  roundMetricsTarget = null;
+}
+function tickRoundMetrics() {
+  roundMetricsTimer = 0;
+  var target = roundMetricsTarget;
+  if (!target || !target.el.isConnected || target.convId !== S.currentConvId) {
+    stopRoundMetricsTicker();
+    return;
+  }
+  if (!selectGuardActive) updateRoundMetrics(target.el, target.round, true);
+  if (S.activeRun || S.queuedRun) {
+    if (!roundMetricsTimer) roundMetricsTimer = setTimeout(tickRoundMetrics, 1000);
+  } else stopRoundMetricsTicker();
+}
+function updateRoundMetrics(el, round, isLastRound) {
+  var footer = el.querySelector(":scope > .msg-round-stats");
+  if (!footer) return;
+  var running = isLastRound && !!(S.activeRun || S.queuedRun);
+  var queued = isLastRound && !!S.queuedRun;
+  var metrics = collectRoundMetrics(round.items, running);
+  var values = {
+    start: formatRoundTime(metrics.startedAt),
+    end: running ? (queued ? _t("排队中") : _t("进行中")) : formatRoundTime(metrics.endedAt),
+    duration: formatRoundDuration(metrics.durationMs),
+    tokens: "~" + metrics.tokens.toLocaleString("zh-CN"),
+    tools: String(metrics.tools), requests: String(metrics.requests),
+  };
+  footer.classList.toggle("msg-round-stats-running", running);
+  footer.querySelectorAll("[data-metric]").forEach(function(item) {
+    var metric = item.getAttribute("data-metric");
+    var valueEl = item.querySelector(".msg-round-metric-value");
+    if (valueEl && valueEl.textContent !== values[metric]) valueEl.textContent = values[metric];
+    var hint = metric === "tokens"
+      ? _t("仅估算本轮保存的正文、推理及工具文本；不含重复发送的历史上下文、系统提示词、图片及供应商隐藏 token，不代表实际计费用量。")
+      : metric === "end" || metric === "duration"
+        ? _t("历史结束时间与耗时按本轮最后一条已保存回复的更新时间计算；运行中耗时含等待时间。") : "";
+    if (item.title !== hint) item.title = hint;
+  });
+  if (isLastRound) {
+    if (running) {
+      roundMetricsTarget = { el: el, round: round, convId: S.currentConvId };
+      if (!roundMetricsTimer) roundMetricsTimer = setTimeout(tickRoundMetrics, 1000);
+    } else stopRoundMetricsTicker();
+  }
+}
+
 // 应用轮的展开/折叠状态与标题文案。
 // 默认规则：roundKey 等于 lastOpenRoundKey（最近活跃过的末轮）才展开，其余折叠；
 // 用户手动 toggle 过（_admRoundOpen）则优先。
@@ -680,6 +761,7 @@ function applyRoundState(el, round, isLastRound) {
   // 撤销按钮的可用性随运行态变化（本会话/同工作区其它会话运行中 → 禁用），
   // 每次渲染都重算，避免按钮沿用上一个会话或上一轮的状态
   syncRoundUndoState(el);
+  updateRoundMetrics(el, round, isLastRound);
 }
 
 // 在指定容器（轮节点）内做消息级增量对齐：

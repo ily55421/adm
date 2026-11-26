@@ -198,45 +198,106 @@ export function renderMarkdown(text) {
   return html;
 }
 
-function renderMarkdownUncached(text) {
-  // 简易 Markdown 渲染：代码块、行内代码、粗体、斜体、标题、列表、链接
-  var html = escapeHtml(text);
+// 先按块识别代码围栏，再做行内转换，防止代码被粗体/链接/换行规则二次改写。
+function renderMarkdownUncached(text, depth = 0) {
+  var lines = text.replace(/\r\n?/g, "\n").split("\n");
+  var out = [];
+  var paragraph = [];
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    out.push("<p>" + paragraph.map(renderMarkdownInline).join("<br>") + "</p>");
+    paragraph = [];
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    var fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fence) {
+      flushParagraph();
+      var code = [];
+      var closing = new RegExp("^ {0,3}" + fence[1][0] + "{" + fence[1].length + ",}\\s*$");
+      while (++i < lines.length && !closing.test(lines[i])) code.push(lines[i]);
+      var lang = fence[2].trim().split(/\s+/)[0];
+      var language = /^[\w+-]+$/.test(lang) ? ' class="language-' + lang + '"' : "";
+      out.push("<pre><code" + language + ">" + escapeHtml(code.join("\n")) + "</code></pre>");
+      continue;
+    }
+    if (!line.trim()) { flushParagraph(); continue; }
+    var heading = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      var level = heading[1].length;
+      out.push("<h" + level + ">" + renderMarkdownInline(heading[2]) + "</h" + level + ">");
+      continue;
+    }
+    if (/^ {0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      flushParagraph(); out.push("<hr>"); continue;
+    }
+    if (i + 1 < lines.length && /^\s*\|/.test(line) && isTableSeparator(lines[i + 1])) {
+      flushParagraph();
+      var rows = [line, lines[++i]];
+      while (i + 1 < lines.length && /^\s*\|/.test(lines[i + 1])) rows.push(lines[++i]);
+      out.push(renderTable(rows.map(renderMarkdownInline).join("\n")));
+      continue;
+    }
+    if (depth < 8 && /^ {0,3}>\s?/.test(line)) {
+      flushParagraph();
+      var quote = [line.replace(/^ {0,3}>\s?/, "")];
+      while (i + 1 < lines.length && /^ {0,3}>\s?/.test(lines[i + 1])) {
+        quote.push(lines[++i].replace(/^ {0,3}>\s?/, ""));
+      }
+      out.push("<blockquote>" + renderMarkdownBlocks(quote.join("\n"), depth + 1) + "</blockquote>");
+      continue;
+    }
+    var list = /^( {0,3})([-+*]|\d+[.)])\s+(.+)$/.exec(line);
+    if (depth < 8 && list) {
+      flushParagraph();
+      var ordered = /^\d/.test(list[2]);
+      var tag = ordered ? "ol" : "ul";
+      var start = ordered ? ' start="' + parseInt(list[2], 10) + '"' : "";
+      var items = [];
+      while (i < lines.length) {
+        var item = /^( {0,3})([-+*]|\d+[.)])\s+(.+)$/.exec(lines[i]);
+        if (!item || item[1].length !== list[1].length || /^\d/.test(item[2]) !== ordered) break;
+        var content = [item[3]];
+        var indent = item[1].length + item[2].length + 1;
+        i++;
+        // 续行与嵌套列表按父项缩进剥离后递归，保留列表层级。
+        while (i < lines.length && lines[i].startsWith(" ".repeat(indent))) content.push(lines[i++].slice(indent));
+        items.push("<li>" + renderMarkdownBlocks(content.join("\n"), depth + 1) + "</li>");
+      }
+      i--;
+      out.push("<" + tag + start + ">" + items.join("") + "</" + tag + ">");
+      continue;
+    }
+    paragraph.push(line);
+  }
+  flushParagraph();
+  return '<div class="agent-markdown">' + out.join("") + "</div>";
+}
 
-  // 代码块 ```language\ncode```
-  html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, function(_, lang, code) {
-    return '<pre style="background:var(--c-bg-deep);border:1px solid var(--c-border);border-radius:6px;padding:10px;margin:8px 0;overflow-x:auto;font-size:12px;"><code>' + code.trim() + "</code></pre>";
+// 嵌套块只移除自身外壳，避免每层列表额外引入块容器。
+function renderMarkdownBlocks(text, depth) {
+  return renderMarkdownUncached(text, depth).replace(/^<div class="agent-markdown">/, "").replace(/<\/div>$/, "");
+}
+
+function renderMarkdownInline(text) {
+  var tokens = [];
+  function token(html) {
+    tokens.push(html);
+    return "\u0000" + (tokens.length - 1) + "\u0000";
+  }
+  var html = escapeHtml(text.replace(/\u0000/g, ""));
+  html = html.replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, function(_, marks, code) {
+    return token("<code>" + code + "</code>");
   });
-
-  // 行内代码 `code`
-  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--c-bg-deep);padding:2px 6px;border-radius:3px;font-size:12px;">$1</code>');
-
-  // 标题 ### / ## / #
-  html = html.replace(/^### (.+)$/gm, '<h3 style="margin:12px 0 6px;font-size:15px;">$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2 style="margin:14px 0 8px;font-size:17px;">$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1 style="margin:16px 0 10px;font-size:19px;">$1</h1>');
-
-  // 粗体 **text**
-  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-
-  // 斜体 *text*
-  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-
-  // 列表项
-  html = html.replace(/^- (.+)$/gm, '<li style="margin-left:16px;">$1</li>');
-
-  // 链接 [text](url)：仅放行 http(s)，阻断 javascript:/data: 等危险协议
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(_, text, url) {
-    var safe = /^https?:\/\//i.test(url.trim()) ? url : "#";
-    return '<a href="' + safe + '" style="color:var(--c-accent);text-decoration:none;" target="_blank">' + text + '</a>';
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, function(_, label, url) {
+    return token('<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + "</a>");
   });
-
-  // GFM 表格：表头行 + 分隔行（|---|）+ 数据行 → <table>（放在换行转换之前，
-  // 单元格内文本此时已含 strong/em/code/a 等行内 HTML；跳过 <pre> 代码块内的 | 行）
-  html = renderTable(html);
-
-  // 换行
-  html = html.replace(/\n/g, "<br>");
-
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/~~([^~]+)~~/g, "<del>$1</del>");
+  // 链接标签可以含行内代码，倒序恢复确保内部占位符也能被还原。
+  for (var i = tokens.length - 1; i >= 0; i--) html = html.split("\u0000" + i + "\u0000").join(tokens[i]);
   return html;
 }
 

@@ -26,6 +26,68 @@ var showAll = {};
 // 切换工作区防抖：doSwitchWorkDir 会创建 workspace，快速连点会重复创建
 var switchingPath = null;
 
+var folderMenu = null;
+var folderMenuCleanup = null;
+
+// 菜单只在显示期间注册全局监听，关闭或卸载页面时全部回收。
+export function closeWorkspaceMenu() {
+  if (folderMenuCleanup) folderMenuCleanup();
+  folderMenuCleanup = null;
+  if (folderMenu) folderMenu.remove();
+  folderMenu = null;
+}
+
+function showWorkspaceMenu(row, x, y) {
+  closeWorkspaceMenu();
+  var path = row.getAttribute("data-ws-path");
+  var root = row.closest(".agent-root");
+  if (!path || !root) return;
+  var menu = document.createElement("div");
+  menu.className = "agent-ws-menu";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", _t("工作目录"));
+  var label = document.createElement("div");
+  label.className = "agent-ws-menu-path";
+  label.textContent = path;
+  label.title = path;
+  var open = document.createElement("button");
+  open.type = "button";
+  open.setAttribute("role", "menuitem");
+  open.textContent = _t("打开文件夹");
+  open.addEventListener("click", async function() {
+    closeWorkspaceMenu();
+    if (row.isConnected) row.focus({ preventScroll: true });
+    try {
+      await invoke("open_workdir_folder", { path: path });
+    } catch (err) {
+      reportError(err, { prefix: _t("打开文件夹失败: ") });
+    }
+  });
+  menu.append(label, open);
+  root.appendChild(menu);
+  folderMenu = menu;
+  var rect = menu.getBoundingClientRect();
+  menu.style.left = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)) + "px";
+  menu.style.top = Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)) + "px";
+  open.focus({ preventScroll: true });
+  var abort = new AbortController();
+  var opts = { signal: abort.signal, capture: true };
+  document.addEventListener("pointerdown", function(e) {
+    if (e.target instanceof Node && !menu.contains(e.target)) closeWorkspaceMenu();
+  }, opts);
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" || e.key === "Tab") {
+      if (e.key === "Escape") e.preventDefault();
+      closeWorkspaceMenu();
+      if (row.isConnected) row.focus({ preventScroll: true });
+    }
+  }, opts);
+  document.addEventListener("scroll", closeWorkspaceMenu, opts);
+  window.addEventListener("resize", closeWorkspaceMenu, opts);
+  window.addEventListener("blur", closeWorkspaceMenu, opts);
+  folderMenuCleanup = function() { abort.abort(); };
+}
+
 var AVATAR_COLORS = ["#26a69a", "#5c6bc0", "#ef5350", "#ffa726", "#ab47bc", "#42a5f5", "#66bb6a", "#ec407a", "#8d6e63", "#26c6da"];
 
 function avatarColor(path) {
@@ -148,6 +210,27 @@ function ensureTreeDelegation(container) {
   var ref = /** @type {any} */ (container);
   if (ref._admWsTreeDelegated) return;
   ref._admWsTreeDelegated = true;
+  container.addEventListener("contextmenu", function(e) {
+    var target = e.target instanceof Element ? e.target : null;
+    var row = target && target.closest(".ws-row");
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var rect = row.getBoundingClientRect();
+    showWorkspaceMenu(row, e.clientX || rect.left + 24, e.clientY || rect.bottom);
+  });
+  container.addEventListener("keydown", function(e) {
+    var target = e.target instanceof Element ? e.target : null;
+    if (!target || !target.matches(".ws-row, .ws-session-item")) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      target.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    } else if (target.matches(".ws-row") && (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10"))) {
+      e.preventDefault();
+      var rect = target.getBoundingClientRect();
+      showWorkspaceMenu(target, rect.left + 24, rect.bottom);
+    }
+  });
   container.addEventListener("click", function(e) {
     var target = e.target instanceof Element ? e.target : null;
     if (!target) return;
@@ -214,6 +297,25 @@ function renderWorkspaceTree() {
   });
   var activeWs = activePath();
 
+  // SSE 会频繁刷新列表；内容相同直接保留 DOM，避免悬停、焦点与滚动跳动。
+  if (activeWs && expanded[activeWs] === undefined) expanded[activeWs] = true;
+  var signature = JSON.stringify(dirs.map(function(d) {
+    var sessions = sessionsFor(d.path);
+    var wsId = wsIdFor(d.path);
+    return [d.path, d.is_default, d.path === activeWs, !!expanded[d.path], !!showAll[d.path],
+      wsId, S.currentConvId, isClearAllInFlight(), sessions && sessions.map(function(c) {
+        return [c.id, c.title, c.name, runStateOf(sessions, wsId, c.id)];
+      })];
+  }));
+  var ref = /** @type {any} */ (container);
+  if (ref._admWsTreeSignature === signature) return;
+  ref._admWsTreeSignature = signature;
+  var scrollTop = container.scrollTop;
+  var focused = document.activeElement;
+  var focusPath = focused && container.contains(focused) ? focused.getAttribute("data-ws-path") : null;
+  var focusConv = focused && focused.getAttribute("data-conv-id");
+  closeWorkspaceMenu();
+
   if (dirs.length === 0) {
     container.innerHTML = '<div class="ws-empty-hint">' + _t("暂无工作目录") + "</div>";
     return;
@@ -236,7 +338,12 @@ function renderWorkspaceTree() {
     var row = document.createElement("div");
     row.className = "ws-row" + (isActive ? " active" : "") + (isExpanded ? " expanded" : "");
     row.setAttribute("data-ws-path", path);
-    row.title = path || "";
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-expanded", String(isExpanded));
+    row.setAttribute("aria-label", wsName(path) + " · " + path);
+    row.setAttribute("aria-haspopup", "menu");
+    row.title = path + "\n" + _t("右键打开文件夹");
     row.innerHTML =
       '<span class="ws-chevron">▶</span>' +
       '<span class="ws-avatar" style="background:' + avatarColor(path) + '">' +
@@ -298,6 +405,10 @@ function renderWorkspaceTree() {
           var isCurrent = wsId === S.activeWsId && conv.id === S.currentConvId;
           var runState = runStateOf(sessions, wsId, conv.id);
           item.className = "ws-session-item" + (isCurrent ? " current" : "");
+          item.tabIndex = 0;
+          item.setAttribute("role", "button");
+          item.setAttribute("aria-current", isCurrent ? "true" : "false");
+          item.title = conv.title || conv.name || _t("新会话");
           item.setAttribute("data-ws-path", path);
           if (conv.id != null) item.setAttribute("data-conv-id", String(conv.id));
           // 运行状态优先于「当前会话」：运行中/排队的会话要在侧栏一眼可辨
@@ -345,6 +456,17 @@ function renderWorkspaceTree() {
 
   container.innerHTML = "";
   container.appendChild(frag);
+  container.scrollTop = scrollTop;
+  if (focusPath) {
+    var candidates = container.querySelectorAll(".ws-row, .ws-session-item");
+    for (var i = 0; i < candidates.length; i++) {
+      if (candidates[i].getAttribute("data-ws-path") === focusPath &&
+          candidates[i].getAttribute("data-conv-id") === focusConv) {
+        /** @type {HTMLElement} */ (candidates[i]).focus({ preventScroll: true });
+        break;
+      }
+    }
+  }
 }
 
 export { renderWorkspaceTree, addWorkDir };

@@ -437,6 +437,26 @@ GUI 客户端在退出时应调用此接口，确保服务器端清理客户端�
 - `400` - 无效的 client_id
 - `409` - 客户端已被回收
 
+
+### 1.6 模型列表与运行状态（sidecar v0.4.7 路由）
+
+```
+GET /v1/models
+GET /v1/models/status
+```
+
+路由存在于 v0.4.7 Windows sidecar；其 Swagger 2.0 `/v1/docs/doc.json` 未列出这两条路由，响应字段尚未纳入稳定契约。ADMX 使用桌面端模型管理命令，不调用 TUI/CLI 的这组端点。接入前需从带有完整 API 定义的服务端版本补齐 schema，不得按路由名推断。
+
+---
+
+### 1.7 Analytics 事件入口（sidecar v0.4.7 路由）
+
+```
+POST /v1/analytics/events
+```
+
+路由存在于 v0.4.7 Windows sidecar，但 OpenAPI 2.0 文档未公开请求/响应 schema。ADMX 暂不调用此遥测入口；接入前需审核事件 payload、隐私边界与用户告知。
+
 ---
 
 ## 2. 工作区接口
@@ -1295,6 +1315,59 @@ POST /v1/workspaces/{id}/lsps/stop
 
 ---
 
+### 6.5 Managed LSP 服务目录
+
+```
+GET /v1/lsp/catalog
+```
+
+返回当前平台可用的 managed language server catalog。实际 0.4.7 sidecar 响应形态为 `{"servers":[...]}`；条目包含 `name`、`display_name`、`runtime`、`version`、`license`、`source`、`platforms`、`available_on_host`、`fix` 等字段。catalog 内容随 sidecar 版本与平台变化。
+
+---
+
+### 6.6 Managed LSP 环境诊断
+
+```
+POST /v1/lsp/doctor
+```
+
+请求体为空对象 `{}`。返回运行时、PATH、安装目录等诊断信息。0.4.7 Windows sidecar 的实际响应包含 `runtime` 与 `path` 字段。
+
+---
+
+### 6.7 Managed LSP 安装计划与确认
+
+```
+POST /v1/lsp/install
+POST /v1/lsp/fix
+```
+
+第一阶段请求 `{ "name": "pyright" }`（`fix` 还可带 `action`），返回包含 `plan_id`、`name`、`action`、`runtime`、`version`、`source`、`license`、`steps`、`requires_confirm`、`expires_at` 的计划；此阶段不启动安装。仅用户确认后，使用同一端点提交 `{ "name": "pyright", "plan_id": "...", "confirm": true, "action": "..." }` 执行计划。无效/过期 plan 返回 `409`。桌面端必须显示来源、版本、许可证并二次确认，不能把第一阶段当成安装成功。
+
+---
+
+### 6.8 Managed LSP 卸载与任务
+
+```
+POST /v1/lsp/uninstall
+GET  /v1/lsp/jobs
+POST /v1/lsp/jobs/{job_id}/cancel
+GET  /v1/lsp/jobs/{job_id}
+```
+
+卸载请求 `{ "name": "pyright" }`；客户端应先显示目标服务并确认。任务列表返回 `{"jobs":[]}` 或 job 列表；取消任务使用 `POST`，无请求体。job 的具体响应字段以对应 0.4.7 sidecar 为准（当前 OpenAPI 2.0 文档未声明这组 managed-LSP 路由）。
+
+---
+
+### 6.9 单个 LSP 重启
+
+```
+POST /v1/workspaces/{id}/lsps/{lsp}/restart
+```
+
+请求体为空对象 `{}`，只重启指定 LSP 客户端；与 6.4 的工作区级「停止所有 LSP」不同。
+
+---
 ## 7. 权限接口
 
 ### 7.1 获取跳过权限状态
