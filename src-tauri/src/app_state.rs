@@ -2,6 +2,7 @@ use crate::common::types::DockerTask;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use crate::common::agent_http::AgentHttpClient;
 use sysinfo::System;
 
 /// docker 长任务的取消标志 + 令牌。
@@ -48,6 +49,7 @@ pub struct AppState {
     pub sys: Mutex<System>,
     /// admAgent server 子进程（全局唯一，所有 workspace 共享）
     pub agent_child: Mutex<Option<tokio::process::Child>>,
+    pub agent_http_client: Mutex<Option<Arc<AgentHttpClient>>>,
     /// 多 workspace 会话（按 workspace_id 索引）
     pub agent_sessions: Mutex<HashMap<String, AgentServerSession>>,
     /// 当前激活的 workspace ID（用于微信路由等需要"当前 tab"的场景）
@@ -85,6 +87,7 @@ impl AppState {
             downloading_phase: Mutex::new(HashMap::new()),
             sys: Mutex::new(System::new_all()),
             agent_child: Mutex::new(None),
+            agent_http_client: Mutex::new(None),
             agent_sessions: Mutex::new(HashMap::new()),
             active_workspace_id: Mutex::new(None),
             agent_start_lock: tokio::sync::Mutex::new(()),

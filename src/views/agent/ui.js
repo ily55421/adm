@@ -289,20 +289,9 @@ export function updateSessionStats() {
   var toolEl = document.getElementById("agent-status-toolcalls");
   var roundEl = document.getElementById("agent-status-rounds");
   if (!toolEl && !roundEl) return;
-  var toolCalls = 0;
-  var rounds = 0;
-  var msgs = S.messages || [];
-  for (var i = 0; i < msgs.length; i++) {
-    var m = msgs[i];
-    if (!m || !Array.isArray(m.parts)) continue;
-    if (m.role === "assistant") rounds++;
-    for (var j = 0; j < m.parts.length; j++) {
-      var p = m.parts[j];
-      if (p && p.type === "tool_call") toolCalls++;
-    }
-  }
-  var toolText = _t("工具调用: ") + toolCalls;
-  var roundText = _t("交互轮次: ") + rounds;
+  var stats = S.messageStats || { toolCalls: 0, assistantMessages: 0 };
+  var toolText = _t("工具调用: ") + stats.toolCalls;
+  var roundText = _t("交互轮次: ") + stats.assistantMessages;
   if (toolEl && toolEl.textContent !== toolText) toolEl.textContent = toolText;
   if (roundEl && roundEl.textContent !== roundText) roundEl.textContent = roundText;
 }

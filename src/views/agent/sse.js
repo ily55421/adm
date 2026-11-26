@@ -382,7 +382,6 @@ function normalizeSSEPayload(payload) {
 function handleSSEEvent(payload, ctx) {
   ctx = ctx || {};
   if (!payload) return;
-  console.log("[agent] SSE 事件:", payload.type || payload?.data?.type, "数据:", JSON.stringify(payload).substring(0, 150));
   var ev = normalizeSSEPayload(payload);
   var handler = sseEventHandlers.get(ev.eventType) || onUnknownSSEEvent;
   try {

@@ -14,6 +14,7 @@
 | `settings.rs` | `save_settings`（原子写入：`.tmp` + `rename`）, `load_settings`, `get_app_version`, `get_llamacpp_version` |
 | `agent.rs` | `start_agent_server`, `stop_agent_server`, `get_agent_server_status`, `agent_http_request`, `agent_subscribe_events`, `agent_unsubscribe_events`, `check_adm_agent`, `get_adm_agent_version`, `add/list/update/delete_cloud_provider`, `probe_models_endpoint`（请求云端模型的 OpenAI 兼容 `{base}/models`，10s 超时，返回模型 ID 列表；走 Rust 是为了绕开 WebView 的 CORS，同 `fetch_skill_store`）、`check_git_repo`（撤销能力探测，见下） |
 
+- **Agent HTTP client 复用**：普通 `agent_http_request` 与 project-memory workspace 查询共享 `AppState` 中的默认本地 transport client，复用 Hyper 连接池；启动探活与 SSE 长连接仍使用各自 client，以保持各自的超时和流式生命周期。SSE 转发使用字节缓冲与事件游标，只对完整事件解码，并处理 LF / CRLF 分隔符。
 - **工作目录打开命令**：`open_workdir_folder(path)` 仅接受 `load_workdirs` 中已登记、当前存在的绝对目录，调用 `tauri_plugin_opener::OpenerExt::open_path` 使用系统文件管理器打开。无需拼接 shell 命令，不切换 Agent workspace；目录已移除、失效或打开失败时向前端返回可读错误。
 ## 关键注意事项（自升级 / 下载 / 检测）
 

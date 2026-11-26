@@ -6,7 +6,7 @@ import { escapeHtml, formatTime } from "./utils.js";
 import { renderWorkspaceTree } from "./ws_tree.js";
 import { showError, showConfirm, showInfo, reportError, exitManualScrollMode, clearErrorNotices, updateContextUsage, updateStatusBar, updateSendButton, clearSendSafetyTimer } from "./ui.js";
 import { getErrorMessage } from "./error.js";
-import { renderMessages, renderTodos, roundOutlineEntries } from "./render.js";
+import { renderMessages, renderTodos, roundOutlineEntries, expandRound } from "./render.js";
 import { resetPermissionState } from "./permission.js";
 import { log } from "./log.js";
 import { updateDecisionModeUI, clearDecisionMode, clearDecisionModes } from "./decision_mode.js";
@@ -18,6 +18,9 @@ var autoCreateStrikes = 0;
 
 // 一键清除是否进行中：期间禁用「清除全部」按钮，防重复点击后对已删会话再次 DELETE
 var clearAllInFlight = false;
+var selectConversationSeq = 0;
+var refreshMessagesPromise = null;
+var refreshMessagesAgain = false;
 
 /** 树内「🗑 清除全部」按钮的禁用态（清空中禁点，避免重复提交） */
 export function isClearAllInFlight() {
@@ -350,8 +353,7 @@ function scrollToRound(roundKey, sourceItem) {
     showError(_t("未找到对应轮次（可能已被删除）"));
     return;
   }
-  target.classList.remove("msg-round-collapsed");
-  /** @type {any} */ (target)._admRoundOpen = true;
+  expandRound(target);
   // 轮内独立滚动：回到本轮开头，让用户从这轮的提问开始读
   target.scrollTop = 0;
   // 退出手动滚动模式 + 跳到底部命令互斥状态，确保后续 scroll 事件判定为程序触发。
@@ -500,9 +502,12 @@ export function handleConvAction(action, convId) {
 }
 
 export async function selectConversation(convId) {
+  var requestSeq = ++selectConversationSeq;
+  var workspaceId = S.serverInfo && S.serverInfo.workspace_id;
   log.debug("SESSION", "selectConversation convId=" + (convId || "").slice(0, 8));
+  if (!workspaceId) return;
   if (convId !== S.currentConvId) { resetPermissionState(); exitManualScrollMode(); clearErrorNotices(); }
-  store.setCurrentConvId(S.serverInfo.workspace_id, convId);
+  store.setCurrentConvId(workspaceId, convId);
   updateDecisionModeUI();
   syncWxFollowSession();
   renderConversationList();
@@ -536,20 +541,20 @@ export async function selectConversation(convId) {
 
   try {
     // 设置当前会话
-    api("POST", "/v1/workspaces/" + S.serverInfo.workspace_id + "/current-session?client_id=" + S.clientId, {
+    api("POST", "/v1/workspaces/" + workspaceId + "/current-session?client_id=" + S.clientId, {
       session_id: convId
     }).catch(function() {});
-
-    // 获取会话信息
-    var conv = await api("GET", "/v1/workspaces/" + S.serverInfo.workspace_id + "/sessions/" + convId);
-    store.setCurrentConv(S.serverInfo.workspace_id, conv);
+    var results = await Promise.all([
+      api("GET", "/v1/workspaces/" + workspaceId + "/sessions/" + convId),
+      api("GET", "/v1/workspaces/" + workspaceId + "/sessions/" + convId + "/messages")
+    ]);
+    if (requestSeq !== selectConversationSeq || !S.serverInfo || S.serverInfo.workspace_id !== workspaceId || S.currentConvId !== convId) return;
+    var conv = results[0];
+    var msgs = results[1];
+    store.setCurrentConv(workspaceId, conv);
     document.getElementById("agent-conv-title").textContent = S.currentConv.title || _t("会话");
-
-    // 单独获取消息列表（合并保留折叠插入的 _fold 等待气泡：消息在服务端尚未
-    // 创建，直接覆盖会被抹掉；setMessagesKeepPending 按内容去重后合并回来）
-    var msgs = await api("GET", "/v1/workspaces/" + S.serverInfo.workspace_id + "/sessions/" + convId + "/messages");
     if (!Array.isArray(msgs)) msgs = msgs.messages || [];
-    store.setMessagesKeepPending(S.serverInfo.workspace_id, msgs, convId);
+    store.setMessagesKeepPending(workspaceId, msgs, convId);
     renderMessages();
 
     // 更新上下文用量（服务端重启后 context_tokens 不持久化会归 0，回退为本地估算）
@@ -567,6 +572,7 @@ export async function selectConversation(convId) {
     document.dispatchEvent(new CustomEvent("agent-conversation-changed"));
     document.dispatchEvent(new CustomEvent("agent-messages-changed"));
   } catch (e) {
+    if (requestSeq !== selectConversationSeq) return;
     console.error("[agent] 加载会话失败:", convId, e);
     reportError(e, { prefix: _t("加载会话失败: ") });
     // 会话在服务端已不存在（数据库被清理 / 跨 workspace 残留 ID）时，
@@ -631,14 +637,29 @@ export async function newConversation() {
 }
 
 // 刷新当前会话的消息列表（合并保留本地待落库的临时气泡，见 selectConversation 说明）
-export async function refreshMessages() {
-  if (!S.currentConvId || !S.serverInfo) return;
-  try {
-    var msgs = await api("GET", "/v1/workspaces/" + S.serverInfo.workspace_id + "/sessions/" + S.currentConvId + "/messages");
-    if (!Array.isArray(msgs)) msgs = msgs.messages || [];
-    store.setMessagesKeepPending(S.serverInfo.workspace_id, msgs, S.currentConvId);
-    renderMessages();
-  } catch (_) {}
+export function refreshMessages() {
+  if (!S.currentConvId || !S.serverInfo) return Promise.resolve();
+  if (refreshMessagesPromise) {
+    refreshMessagesAgain = true;
+    return refreshMessagesPromise;
+  }
+  refreshMessagesPromise = (async function() {
+    do {
+      refreshMessagesAgain = false;
+      var workspaceId = S.serverInfo && S.serverInfo.workspace_id;
+      var convId = S.currentConvId;
+      if (!workspaceId || !convId) break;
+      try {
+        var msgs = await api("GET", "/v1/workspaces/" + workspaceId + "/sessions/" + convId + "/messages");
+        if (S.serverInfo && S.serverInfo.workspace_id === workspaceId && S.currentConvId === convId) {
+          if (!Array.isArray(msgs)) msgs = msgs.messages || [];
+          store.setMessagesKeepPending(workspaceId, msgs, convId);
+          renderMessages();
+        }
+      } catch (_) {}
+    } while (refreshMessagesAgain);
+  })().finally(function() { refreshMessagesPromise = null; });
+  return refreshMessagesPromise;
 }
 
 // 本地估算历史消息占用的上下文 token 数。

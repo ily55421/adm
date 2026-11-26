@@ -286,7 +286,16 @@ export function renderMessages() {
       var roundRunning = roundIdx === rounds.length - 1 && !!S.activeRun && S.activeRun.sessionId === S.currentConvId;
       decisionCardKey = lastCardKey || (roundRunning ? DECISION_PENDING_KEY : null);
     }
-    alignMessagesInContainer(getRoundBody(el), round.items, decisionRequest, decisionCardKey);
+    var body = getRoundBody(el);
+    var roundRef = /** @type {any} */ (el);
+    roundRef._admRoundState = { items: round.items, allowDecision: decisionRequest, decisionCardKey: decisionCardKey };
+    if (el.classList.contains("msg-round-collapsed")) {
+      if (roundRef._admRoundHydrated) body.replaceChildren();
+      roundRef._admRoundHydrated = false;
+    } else {
+      alignMessagesInContainer(body, round.items, decisionRequest, decisionCardKey);
+      roundRef._admRoundHydrated = true;
+    }
     var expected = area.children[pos];
     if (expected !== el) area.insertBefore(el, expected || null);
     pos++;
@@ -519,12 +528,9 @@ function buildRoundNode(round) {
   var body = document.createElement("div");
   body.className = "msg-round-body";
   header.addEventListener("click", function() {
-    // 当前折叠 → 点击后展开；当前展开 → 点击后折叠。
-    // 之前把“当前状态”误存为偏好并按当前状态 toggle，导致点击无效（状态原样保持）
     var willOpen = div.classList.contains("msg-round-collapsed");
-    var ref = /** @type {any} */ (div);
-    ref._admRoundOpen = willOpen;
-    div.classList.toggle("msg-round-collapsed", !willOpen);
+    if (willOpen) expandRound(div);
+    else collapseRound(div);
   });
   // 容器内空白区域右键 → 折叠当前轮：仅命中轮容器/body 自身的空白（padding、消息间隙），
   // 右键消息气泡、header 等子元素不触发；已折叠则放行默认菜单
@@ -533,8 +539,7 @@ function buildRoundNode(round) {
     if (t !== div && t !== body) return;
     if (div.classList.contains("msg-round-collapsed")) return;
     e.preventDefault();
-    /** @type {any} */ (div)._admRoundOpen = false;
-    div.classList.add("msg-round-collapsed");
+    collapseRound(div);
   });
   // 轮内独立滚动：scroll 事件不冒泡，必须在轮本身挂监听才能识别轮内向上滑动
   // （wheel 事件会冒泡到 area，所以手动模式的进入已经在 area 的 wheel 监听里覆盖；
@@ -572,6 +577,26 @@ function buildRoundNode(round) {
 function getRoundBody(roundEl) {
   var body = roundEl.querySelector(":scope > .msg-round-body");
   return body || roundEl;
+}
+function collapseRound(roundEl) {
+  var ref = /** @type {any} */ (roundEl);
+  ref._admRoundOpen = false;
+  roundEl.classList.add("msg-round-collapsed");
+  var body = getRoundBody(roundEl);
+  var indicator = body.querySelector("#agent-working-indicator");
+  if (body.childNodes.length) body.replaceChildren();
+  if (indicator) body.appendChild(indicator);
+  ref._admRoundHydrated = false;
+}
+export function expandRound(roundEl) {
+  var ref = /** @type {any} */ (roundEl);
+  ref._admRoundOpen = true;
+  roundEl.classList.remove("msg-round-collapsed");
+  var state = ref._admRoundState;
+  if (state) {
+    alignMessagesInContainer(getRoundBody(roundEl), state.items, state.allowDecision, state.decisionCardKey);
+    ref._admRoundHydrated = true;
+  }
 }
 
 // 提取轮标题文本：来自本轮首条 user 消息（content 或首个非空 text part），

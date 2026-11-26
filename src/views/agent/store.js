@@ -34,6 +34,29 @@ function _log(level, cat, msg) {
 function _frozen(arr) { return Object.freeze(arr.slice()); }
 function _frozenObj(obj) { return Object.freeze(Object.assign({}, obj)); }
 
+function _messageStatsFor(msg) {
+  var toolCalls = 0;
+  if (msg && Array.isArray(msg.parts)) {
+    for (var i = 0; i < msg.parts.length; i++) {
+      if (msg.parts[i] && msg.parts[i].type === "tool_call") toolCalls++;
+    }
+  }
+  return { toolCalls: toolCalls, assistantMessages: msg && msg.role === "assistant" ? 1 : 0 };
+}
+function _adjustMessageStats(ws, msg, direction) {
+  var delta = _messageStatsFor(msg);
+  ws.messageStats.toolCalls += delta.toolCalls * direction;
+  ws.messageStats.assistantMessages += delta.assistantMessages * direction;
+}
+function _recountMessageStats(ws) {
+  var stats = { toolCalls: 0, assistantMessages: 0 };
+  (ws.messages || []).forEach(function(msg) {
+    var delta = _messageStatsFor(msg);
+    stats.toolCalls += delta.toolCalls;
+    stats.assistantMessages += delta.assistantMessages;
+  });
+  ws.messageStats = stats;
+}
 // ===== 每个 workspace 的独立状态 =====
 class WorkspaceState {
   constructor() {
@@ -41,6 +64,7 @@ class WorkspaceState {
     this.currentConvId = null;
     this.currentConv = null;
     this.messages = [];
+    this.messageStats = { toolCalls: 0, assistantMessages: 0 };
     this.isSending = false;
     this.activeRun = null;
     this.queuedRun = null;
@@ -91,6 +115,7 @@ class WorkspaceState {
       currentConvId: this.currentConvId,
       currentConv: this.currentConv ? _frozenObj(this.currentConv) : null,
       messages: _frozen(this.messages),
+      messageStats: _frozenObj(this.messageStats),
       isSending: this.isSending,
       // 运行引用字段：浅拷贝隔离（不可冻结，见文件头注释）
       activeRun: this.activeRun ? Object.assign({}, this.activeRun) : null,
@@ -111,6 +136,7 @@ class WorkspaceState {
     this.currentConvId = snap.currentConvId || null;
     this.currentConv = snap.currentConv ? Object.assign({}, snap.currentConv) : null;
     this.messages = snap.messages ? snap.messages.slice() : [];
+    _recountMessageStats(this);
     this.isSending = snap.isSending || false;
     this.activeRun = snap.activeRun ? Object.assign({}, snap.activeRun) : null;
     this.queuedRun = snap.queuedRun ? Object.assign({}, snap.queuedRun) : null;
@@ -142,6 +168,8 @@ class Store {
     this.workspaces = new Map();
     this.activeWsId = null;
     this.workspacesObj = {};
+    this.pendingMessageSnapshots = new Set();
+    this.messageSnapshotFrame = 0;
   }
 
   registerWorkspace(wsId) {
@@ -157,6 +185,31 @@ class Store {
     delete this.workspacesObj[wsId];
   }
 
+  _scheduleMessageSnapshot(wsId) {
+    this.pendingMessageSnapshots.add(wsId);
+    if (this.messageSnapshotFrame) return;
+    this.messageSnapshotFrame = requestAnimationFrame(() => {
+      this.messageSnapshotFrame = 0;
+      this._flushMessageSnapshots();
+    });
+  }
+  _flushMessageSnapshots() {
+    if (this.messageSnapshotFrame) {
+      cancelAnimationFrame(this.messageSnapshotFrame);
+      this.messageSnapshotFrame = 0;
+    }
+    if (this.pendingMessageSnapshots.size === 0) return;
+    var pending = Array.from(this.pendingMessageSnapshots);
+    this.pendingMessageSnapshots.clear();
+    var activeChanged = false;
+    pending.forEach((wsId) => {
+      var ws = this.workspaces.get(wsId);
+      if (!ws) return;
+      this.workspacesObj[wsId] = ws.snapshot();
+      if (wsId === this.activeWsId) activeChanged = true;
+    });
+    if (activeChanged) this.bindToS();
+  }
   getActiveWs() {
     return this.workspaces.get(this.activeWsId);
   }
@@ -171,6 +224,7 @@ class Store {
     S.currentConvId = ws.currentConvId;
     S.currentConv = ws.currentConv ? _frozenObj(ws.currentConv) : null;
     S.messages = _frozen(ws.messages);
+    S.messageStats = _frozenObj(ws.messageStats);
     S.isSending = ws.isSending;
     // 运行引用字段：保持内部引用共享（collectRunStats 原地累计、ui.js === 同一性比较）
     S.activeRun = ws.activeRun;
@@ -194,6 +248,7 @@ class Store {
   }
 
   setActive(wsId) {
+    this._flushMessageSnapshots();
     if (this.activeWsId) {
       var prev = this.workspaces.get(this.activeWsId);
       if (prev) this.workspacesObj[this.activeWsId] = prev.snapshot();
@@ -214,6 +269,7 @@ class Store {
     if (patch.currentConv !== undefined) ws.currentConv = patch.currentConv;
     if (patch.conversations !== undefined) ws.conversations = patch.conversations;
     if (patch.messages !== undefined) ws.messages = patch.messages;
+    if (patch.messages !== undefined) _recountMessageStats(ws);
     this.workspacesObj[wsId] = ws.snapshot();
     if (wsId === this.activeWsId) this.bindToS();
   }
@@ -246,6 +302,7 @@ class Store {
     var ws = this.workspaces.get(wsId);
     if (!ws) return;
     ws.messages = arr;
+    _recountMessageStats(ws);
     this.workspacesObj[wsId] = ws.snapshot();
     if (wsId === this.activeWsId) this.bindToS();
   }
@@ -280,6 +337,7 @@ class Store {
     });
     if (pendingLocal.length > 0) merged = merged.concat(pendingLocal);
     ws.messages = merged;
+    _recountMessageStats(ws);
     this.workspacesObj[wsId] = ws.snapshot();
     if (wsId === this.activeWsId) this.bindToS();
   }
@@ -301,6 +359,7 @@ class Store {
     }
     if (!ws.messages.some(function(m) { return m.id === msgData.id; })) {
       ws.messages.push(msgData);
+      _adjustMessageStats(ws, msgData, 1);
     }
     this.workspacesObj[wsId] = ws.snapshot();
     if (wsId === this.activeWsId) this.bindToS();
@@ -311,6 +370,7 @@ class Store {
     if (!ws) return;
     if (!ws.messages.some(function(m) { return m.id === msg.id; })) {
       ws.messages.push(msg);
+      _adjustMessageStats(ws, msg, 1);
       this.workspacesObj[wsId] = ws.snapshot();
       // 必须 bindToS：S.messages 是冻结拷贝，不与内部共享，不同步则 UI 读旧数组
       if (wsId === this.activeWsId) this.bindToS();
@@ -321,16 +381,21 @@ class Store {
     var ws = this.workspaces.get(wsId);
     if (!ws) return;
     var idx = ws.messages.findIndex(function(m) { return m.id === msg.id; });
-    if (idx >= 0) ws.messages[idx] = msg;
-    else ws.messages.push(msg);
-    this.workspacesObj[wsId] = ws.snapshot();
-    // 必须 bindToS：S.messages 是冻结拷贝，不同步则流式 updated 事件 UI 不更新
-    if (wsId === this.activeWsId) this.bindToS();
+    if (idx >= 0) {
+      _adjustMessageStats(ws, ws.messages[idx], -1);
+      ws.messages[idx] = msg;
+    } else {
+      ws.messages.push(msg);
+    }
+    _adjustMessageStats(ws, msg, 1);
+    this._scheduleMessageSnapshot(wsId);
   }
 
   deleteMessage(wsId, msgId) {
     var ws = this.workspaces.get(wsId);
     if (!ws) return;
+    var existing = ws.messages.find(function(m) { return m.id === msgId; });
+    if (existing) _adjustMessageStats(ws, existing, -1);
     ws.messages = ws.messages.filter(function(m) { return m.id !== msgId; });
     this.workspacesObj[wsId] = ws.snapshot();
     if (wsId === this.activeWsId) this.bindToS();
@@ -385,6 +450,7 @@ class Store {
       return m._sessionId !== sessionId;
     });
     var removed = prevCount - ws.messages.length;
+    if (removed > 0) _recountMessageStats(ws);
     if (removed > 0) {
       _log("debug", "STORE", "startRun 清掉 " + removed + " 条旧错误气泡 session=" + (sessionId || "").slice(0, 8));
     }
@@ -619,6 +685,7 @@ export const S = {
   currentConvId: null,
   currentConv: null,
   messages: Object.freeze([]),
+  messageStats: Object.freeze({ toolCalls: 0, assistantMessages: 0 }),
   isSending: false,
   activeRun: null,
   queuedRun: null,

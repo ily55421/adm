@@ -2617,15 +2617,16 @@ async fn forward_sse_events(
         use futures_util::StreamExt;
         use http_body_util::BodyExt;
         let mut stream = body.into_data_stream();
-        let mut buffer = String::new();
+        let mut buffer: Vec<u8> = Vec::new();
 
         while let Some(chunk_result) = stream.next().await {
             if stop.load(Ordering::Relaxed) { return Ok(()); }
             let chunk = match chunk_result { Ok(c) => c, Err(_) => break };
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-            while let Some(pos) = buffer.find("\n\n") {
-                let event_text = buffer[..pos].to_string();
-                buffer = buffer[pos + 2..].to_string();
+            buffer.extend_from_slice(&chunk);
+            let mut consumed = 0;
+            while let Some((event_len, delimiter_len)) = find_sse_boundary(&buffer[consumed..]) {
+                let event_end = consumed + event_len;
+                let event_text = String::from_utf8_lossy(&buffer[consumed..event_end]);
                 let mut event_type = String::new();
                 let mut event_data = String::new();
                 for line in event_text.lines() {
@@ -2669,7 +2670,9 @@ async fn forward_sse_events(
                         }
                     }
                 }
+                consumed = event_end + delimiter_len;
             }
+            if consumed > 0 { buffer.drain(..consumed); }
         }
         // 流断开后立即重连：admAgent 在最后一条 SSE 流断开的瞬间就会 teardown workspace，
         // 任何等待都在扩大 server 自杀的竞争窗口
@@ -2678,6 +2681,20 @@ async fn forward_sse_events(
             api_debug_log(|| "SSE ! 流断开，立即重连".to_string());
         }
     }
+}
+
+fn find_sse_boundary(buffer: &[u8]) -> Option<(usize, usize)> {
+    let mut index = 0;
+    while index + 1 < buffer.len() {
+        if buffer[index..].starts_with(b"\n\n") {
+            return Some((index, 2));
+        }
+        if buffer[index..].starts_with(b"\r\n\r\n") {
+            return Some((index, 4));
+        }
+        index += 1;
+    }
+    None
 }
 
 /// 检查 admAgent server 子进程是否已退出（供 SSE 转发循环的自愈判断）。
@@ -2943,6 +2960,16 @@ pub async fn get_agent_server_status(state: tauri::State<'_, AppState>) -> Resul
     })
 }
 
+fn shared_agent_http_client(state: &AppState) -> Result<Arc<agent_http::AgentHttpClient>, String> {
+    let mut cached = state.agent_http_client.lock().map_err(|e| e.to_string())?;
+    if let Some(client) = cached.as_ref() {
+        return Ok(Arc::clone(client));
+    }
+    let client = Arc::new(build_client(&AgentTransport::default_host(), Duration::from_secs(5))?);
+    *cached = Some(Arc::clone(&client));
+    Ok(client)
+}
+
 #[tauri::command]
 pub async fn agent_http_request(
     state: tauri::State<'_, AppState>, method: String, path: String, body: Option<serde_json::Value>,
@@ -2961,13 +2988,12 @@ pub async fn agent_http_request(
             body.as_ref().map(|b| format!(" body={}", mask_sensitive_json(b))).unwrap_or_default()
         ));
     }
-    let client = build_client(&AgentTransport::default_host(), Duration::from_secs(5))
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+    let client = shared_agent_http_client(state.inner()).map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
     // 180s：与 admAgent 服务端图片直调识别的整体超时（describeOverallTimeout）
     // 保持一致——识别在 HTTP 超时前返回或降级，避免“前端报错、后台继续跑”。
     let (status, bytes) = tokio::time::timeout(
         Duration::from_secs(180),
-        agent_http::send(&client, &method, &path, body),
+        agent_http::send(client.as_ref(), &method, &path, body),
     )
     .await
     .map_err(|_| "HTTP 请求超时".to_string())?
@@ -3043,11 +3069,10 @@ async fn fetch_workspace_data_dir(
     if !server_process_alive(state) {
         bail!("admAgent server 未运行");
     }
-    let client = build_client(&AgentTransport::default_host(), Duration::from_secs(5))
-        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+    let client = shared_agent_http_client(state.inner()).map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
     let (status, bytes) = tokio::time::timeout(
         Duration::from_secs(30),
-        agent_http::send(&client, "GET", &format!("/v1/workspaces/{}", workspace_id), None),
+        agent_http::send(client.as_ref(), "GET", &format!("/v1/workspaces/{}", workspace_id), None),
     )
     .await
     .map_err(|_| "获取 workspace 信息超时".to_string())?
@@ -4707,5 +4732,14 @@ mod sse_sub_agent_filter_tests {
     fn events_without_session_id_forwarded() {
         assert!(!is_sub_agent_event(&serde_json::json!({ "type": "config_changed" })));
         assert!(!is_sub_agent_event(&serde_json::json!({ "raw": "not-json" })));
+    }
+    #[test]
+    fn sse_boundary_recognizes_lf_and_crlf_across_chunks() {
+        let lf = b"data: {}\n\nrest";
+        assert_eq!(find_sse_boundary(lf), Some((8, 2)));
+        let mut crlf = b"data: {}\r\n".to_vec();
+        assert_eq!(find_sse_boundary(&crlf), None);
+        crlf.extend_from_slice(b"\r\nrest");
+        assert_eq!(find_sse_boundary(&crlf), Some((8, 4)));
     }
 }
